@@ -73,9 +73,10 @@ func (s *userService) Register(ctx context.Context, user *domain.User) (domain.U
 		return domain.User{}, errors.New("password must be at least 6 characters")
 	}
 
-	_, err := s.userRepo.FindByEmail(ctx, user.Email)
-	if err == nil {
-		logger.Error("Email already exists", err)
+	// Check if email already exists
+	existingUser, err := s.userRepo.FindByEmail(ctx, user.Email)
+	if err == nil && existingUser.ID > 0 {
+		logger.Error("Email already exists")
 		return domain.User{}, errors.New("email already exists")
 	}
 
@@ -102,8 +103,12 @@ func (s *userService) Register(ctx context.Context, user *domain.User) (domain.U
 	expAt := timeNow.Add(time.Duration(time.Minute * verificationCodeTTL)).Unix()
 
 	verificationCode := fmt.Sprintf("%v|%v", newUser.Email, expAt)
-	verificationCodeEncrypt, _ := goshortcute.AESCBCEncrypt([]byte(verificationCode), []byte(s.appEmailVerificationKey))
-	activationLink := s.appDeploymentUrl + "/users/email-verification/" + verificationCodeEncrypt
+	verificationCodeEncrypt, err := goshortcute.AESCBCEncrypt([]byte(verificationCode), []byte(s.appEmailVerificationKey))
+	if err != nil {
+		logger.Fatal("error when ecnrypt")
+	}
+	strEncode := goshortcute.StringtoBase64Encode(verificationCodeEncrypt)
+	activationLink := s.appDeploymentUrl + "/api/v1/users/email-verification/" + strEncode
 
 	err = s.notifRepo.SendEmail(newUser.FullName, newUser.Email, SubjectRegisterAccount, fmt.Sprintf(EmailBodyRegisterAccount, newUser.FullName, activationLink, verificationCodeTTL))
 	if err != nil {
@@ -144,7 +149,8 @@ func (s *userService) Login(ctx context.Context, email, password string) (string
 }
 
 func (s *userService) VerifyEmail(ctx context.Context, verificationCodeEncrypt string) error {
-	verificationCodeDecrypt, err := goshortcute.AESCBCDecrypt([]byte(verificationCodeEncrypt), []byte(s.appEmailVerificationKey))
+	strDecode := goshortcute.StringtoBase64Decode(verificationCodeEncrypt)
+	verificationCodeDecrypt, err := goshortcute.AESCBCDecrypt([]byte(strDecode), []byte(s.appEmailVerificationKey))
 	if err != nil {
 		logger.Error("Verifying email error", err)
 		return errors.New("invalid or expired url")
