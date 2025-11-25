@@ -1,4 +1,4 @@
-// Hal yang diupdate
+// Hal yang diupdate 1.0 Fandi
 User business service, login, register, dan verifikasi email
 
 // Hal yang belum diupdate
@@ -6,3 +6,11 @@ a. File .env masih belum konek ke database
 b. auth middleware di main.go masih belum di implementasi
 c. kode masih belum di test/uji postman
 d. baru ada service user register, login dan verifikasi email
+
+// Update 1.1 Fandi
+Baru menambahkan product domain, product repository, product service CRUD
+Memperbaiki verifikasi email, sudah bisa untuk memverifikasi email
+
+// Hal yang belum diupdate
+a. Handler dan router untuk entitas product
+b. Di product domain apakah perlu updated_at sama deleted_at?
