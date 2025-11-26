@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"log"
 	"myGreenMarket/app/echo-server/router"
+	"myGreenMarket/business/orders"
+	"myGreenMarket/business/payments"
 	userService "myGreenMarket/business/user"
 	"myGreenMarket/internal/middleware"
 	"myGreenMarket/internal/repository/notification"
 	psqlRepo "myGreenMarket/internal/repository/postgres"
+	"myGreenMarket/internal/repository/xendit"
 	"myGreenMarket/internal/rest"
 	"myGreenMarket/pkg/config"
 	"myGreenMarket/pkg/database"
@@ -51,17 +54,33 @@ func main() {
 		},
 	)
 
+	xenditRepo := xendit.NewXenditRepository(
+		xendit.XenditConfig{
+			XenditApi:          cfg.Xendit.XenditSecretKey,
+			XenditUrl:          cfg.Xendit.XenditUrl,
+			SuccessRedirectUrl: cfg.Xendit.RedirectUrl,
+			FailureRedirectUrl: cfg.Xendit.RedirectUrl,
+		},
+	)
+
 	// Init validate
 	validate := validator.New()
 
 	// Init repo
 	userRepo := psqlRepo.NewUserRepository(db)
+	ordersRepo := psqlRepo.NewOrdersRepository(db)
+	productsRepo := psqlRepo.NewProductRepository(db)
+	paymentsRepo := psqlRepo.NewPaymentsRepository(db)
 
 	// Init service
 	userService := userService.NewUserService(userRepo, validate, mailjetEmail, cfg.App.AppEmailVerificationKey, cfg.App.AppDeploymentUrl)
+	ordersService := orders.NewOrdersService(ordersRepo, productsRepo)
+	paymentsService := payments.NewPaymentsService(paymentsRepo, xenditRepo, userRepo, ordersRepo, productsRepo)
 
 	// Init handler
 	userHandler := rest.NewUserHandler(userService)
+	ordersHandler := rest.NewOrdersHandler(ordersService)
+	paymentsHandler := rest.NewPaymentsHandler(paymentsService)
 
 	// Init echo
 	e := echo.New()
@@ -85,7 +104,7 @@ func main() {
 
 	// Setup routes
 	api := e.Group("/api/v1")
-	router.SetupUserRoutes(api, userHandler)
+	router.SetupUserRoutes(api, userHandler, ordersHandler, paymentsHandler)
 
 	// Goroutine server
 	go func() {

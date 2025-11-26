@@ -13,6 +13,7 @@ type Config struct {
 	Database DatabaseConfig
 	JWT      JWTConfig
 	Mailjet  MailjetConfig
+	Xendit   XenditConfig
 }
 
 type MailjetConfig struct {
@@ -48,6 +49,12 @@ type JWTConfig struct {
 	SecretKey string
 }
 
+type XenditConfig struct {
+	XenditSecretKey string
+	XenditUrl       string
+	RedirectUrl     string
+}
+
 func Load() (*Config, error) {
 	if err := godotenv.Load(); err != nil {
 		return nil, errors.New("missing environment")
@@ -81,6 +88,11 @@ func Load() (*Config, error) {
 			MailjetBasicAuthPassword: getEnv("MAILJET_BASIC_AUTH_PASSWORD", ""),
 			MailjetSenderEmail:       getEnv("MAILJET_SENDER_EMAIL", ""),
 			MailjetSenderName:        getEnv("MAILJET_SENDER_NAME", ""),
+		},
+		Xendit: XenditConfig{
+			XenditSecretKey: getEnv("XENDIT_SECRET_KEY", ""),
+			XenditUrl:       getEnv("XENDIT_URL", ""),
+			RedirectUrl:     getEnv("REDIRECT_URL", ""),
 		},
 	}
 

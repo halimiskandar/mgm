@@ -3,6 +3,7 @@ module myGreenMarket
 go 1.25.1
 
 require (
+	github.com/AMFarhan21/fres v1.2.1
 	github.com/go-playground/validator/v10 v10.28.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/joho/godotenv v1.5.1

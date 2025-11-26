@@ -3,6 +3,7 @@ package notification
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -50,7 +51,7 @@ type Messages struct {
 	HTMLPart string `json:"HTMLPart"`
 }
 
-func (r *MailjetRepository) SendEmail(toName, toEmail, subject, message string) (err error) {
+func (r MailjetRepository) SendEmail(toName, toEmail, subject, message string) (err error) {
 	url := r.mailjetConfig.MailjetBaseURL + "/v3.1/send"
 	method := http.MethodPost
 
@@ -101,6 +102,8 @@ func (r *MailjetRepository) SendEmail(toName, toEmail, subject, message string) 
 	if res.StatusCode >= 200 && res.StatusCode <= 299 {
 		return nil
 	}
+	bodyBytes, _ := io.ReadAll(res.Body)
+	fmt.Println("Mailjet Response:", string(bodyBytes))
 
 	return fmt.Errorf("mailer service return negative response %v", res.StatusCode)
 }
