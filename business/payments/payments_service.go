@@ -2,7 +2,6 @@ package payments
 
 import (
 	"context"
-	"log"
 	"myGreenMarket/business/orders"
 	"myGreenMarket/business/product"
 	"myGreenMarket/business/user"
@@ -82,8 +81,8 @@ func (s *PaymentsService) GetAllPayments() ([]domain.Payments, error) {
 func (s *PaymentsService) GetPayment(payment_id int) (domain.Payments, error) {
 	return s.paymentRepo.GetPayment(payment_id)
 }
-func (s *PaymentsService) UpdatePayment(data domain.Payments, user_id, productId int, request rest.WebhookRequest) error {
-	switch request.Items[0].Purpose {
+func (s *PaymentsService) UpdatePayment(data domain.Payments, user_id, productId int, request rest.WebhookRequest, purpose string) error {
+	switch purpose {
 	case "TRANSFER":
 		switch request.Status {
 		case "PAID":
@@ -135,9 +134,6 @@ func (s *PaymentsService) UpdatePayment(data domain.Payments, user_id, productId
 		}
 	}
 
-	log.Print("---------------------------------------------")
-	log.Print("PAYMENT ID DI PAYMENT SERVICE LAYER: ", data.ID)
-	log.Print("---------------------------------------------")
 	return s.paymentRepo.UpdatePayment(data)
 }
 func (s *PaymentsService) DeletePayment(payment_id int) error {

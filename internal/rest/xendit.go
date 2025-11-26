@@ -37,6 +37,11 @@ type (
 		PaymentDestination string    `json:"payment_destination"`
 		FailureRedirectURL string    `json:"failure_redirect_url"`
 		SuccessRedirectURL string    `json:"success_redirect_url"`
+		Metadata           Meta      `json:"metadata"`
+	}
+
+	Meta struct {
+		Purpose string `json:"purpose"`
 	}
 
 	Item struct {
@@ -70,15 +75,11 @@ func (ctrl WebhookController) HandleWebhook(c echo.Context) error {
 	paymentId, _ := strconv.Atoi(externalID[0])
 	userId, _ := strconv.Atoi(externalID[1])
 	productId, _ := strconv.Atoi(externalID[2])
-
-	log.Print("---------------------------------------------")
-	log.Print("EXTERNAL ID ", externalID)
-	log.Print("PAYMENT ID DI XENDIT HANDLER: ", paymentId)
-	log.Print("---------------------------------------------")
+	purpose := externalID[3]
 
 	err := ctrl.paymentService.UpdatePayment(domain.Payments{
 		ID: paymentId,
-	}, userId, productId, request)
+	}, userId, productId, request, purpose)
 	if err != nil {
 		log.Println("Failed to update payment status:", err.Error())
 		return c.JSON(http.StatusInternalServerError, fres.Response.StatusInternalServerError(http.StatusInternalServerError))

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"myGreenMarket/domain"
 	"net/http"
 	"strings"
@@ -39,12 +38,8 @@ func (r XenditRepository) XenditInvoiceUrl(purpose, username, email, name, categ
 		description = fmt.Sprintf("top up wallet %.2f", amount)
 	}
 
-	log.Print("---------------------------------------------")
-	log.Print("PAYMENTID DI XENDIT REPOSITORY: ", paymentId)
-	log.Print("---------------------------------------------")
-
 	payload := strings.NewReader(fmt.Sprintf(`{
-		"external_id": "%d|%d|%d",
+		"external_id": "%d|%d|%d|%s",
 		"amount": %.2f,
 		"description": "%s",
 		"invoice_duration": 3600,
@@ -56,7 +51,6 @@ func (r XenditRepository) XenditInvoiceUrl(purpose, username, email, name, categ
 		"currency": "IDR",
 		"items": [
 			{
-			"purpose": "%s",
 			"name": "%s",
 			"quantity": %d,
 			"price": %.2f,
@@ -64,9 +58,9 @@ func (r XenditRepository) XenditInvoiceUrl(purpose, username, email, name, categ
 			}
 		],
 		"metadata": {
-			"store_branch": "Makassar"
+			"store_branch": "Unknown"
 		}
-	}      `, paymentId, userId, productID, amount, description, email, r.xenditConfig.SuccessRedirectUrl, r.xenditConfig.FailureRedirectUrl, purpose, name, quantity, amount, category))
+	}      `, paymentId, userId, productID, purpose, amount, description, email, r.xenditConfig.SuccessRedirectUrl, r.xenditConfig.FailureRedirectUrl, name, quantity, amount, category))
 
 	client := &http.Client{}
 	req, err := http.NewRequest(method, url, payload)

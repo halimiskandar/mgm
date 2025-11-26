@@ -20,7 +20,7 @@ type (
 		CreatePayment(data domain.Payments, isWallet bool, user_id uint) (domain.PaymentWithLink, error)
 		GetAllPayments() ([]domain.Payments, error)
 		GetPayment(payment_id int) (domain.Payments, error)
-		UpdatePayment(data domain.Payments, user_id, productId int, request WebhookRequest) error
+		UpdatePayment(data domain.Payments, user_id, productId int, request WebhookRequest, purpose string) error
 		DeletePayment(payment_id int) error
 	}
 
