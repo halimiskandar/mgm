@@ -2,6 +2,7 @@ package payments
 
 import (
 	"context"
+	"log"
 	"myGreenMarket/business/orders"
 	"myGreenMarket/business/product"
 	"myGreenMarket/business/user"
@@ -133,6 +134,10 @@ func (s *PaymentsService) UpdatePayment(data domain.Payments, user_id, productId
 			data.PaymentStatus = request.Status
 		}
 	}
+
+	log.Print("---------------------------------------------")
+	log.Print("PAYMENT ID DI PAYMENT SERVICE LAYER: ", data.ID)
+	log.Print("---------------------------------------------")
 	return s.paymentRepo.UpdatePayment(data)
 }
 func (s *PaymentsService) DeletePayment(payment_id int) error {

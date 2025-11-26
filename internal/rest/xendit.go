@@ -71,6 +71,11 @@ func (ctrl WebhookController) HandleWebhook(c echo.Context) error {
 	userId, _ := strconv.Atoi(externalID[1])
 	productId, _ := strconv.Atoi(externalID[2])
 
+	log.Print("---------------------------------------------")
+	log.Print("EXTERNAL ID ", externalID)
+	log.Print("PAYMENT ID DI XENDIT HANDLER: ", paymentId)
+	log.Print("---------------------------------------------")
+
 	err := ctrl.paymentService.UpdatePayment(domain.Payments{
 		ID: paymentId,
 	}, userId, productId, request)

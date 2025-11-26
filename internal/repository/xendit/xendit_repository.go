@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"myGreenMarket/domain"
 	"net/http"
 	"strings"
@@ -37,6 +38,10 @@ func (r XenditRepository) XenditInvoiceUrl(purpose, username, email, name, categ
 	case "TOPUP":
 		description = fmt.Sprintf("top up wallet %.2f", amount)
 	}
+
+	log.Print("---------------------------------------------")
+	log.Print("PAYMENTID DI XENDIT REPOSITORY: ", paymentId)
+	log.Print("---------------------------------------------")
 
 	payload := strings.NewReader(fmt.Sprintf(`{
 		"external_id": "%d|%d|%d",

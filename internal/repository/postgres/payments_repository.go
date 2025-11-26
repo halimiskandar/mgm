@@ -52,12 +52,13 @@ func (r *PaymentsRepository) GetPayment(payment_id int) (domain.Payments, error)
 
 func (r *PaymentsRepository) UpdatePayment(data domain.Payments) error {
 	ctx := context.Background()
-	row := r.DB.WithContext(ctx).Where("id=?", data.ID).Updates(&data)
-	if row.RowsAffected == 0 {
-		return errors.New("payment_id not found")
-	}
+	row := r.DB.WithContext(ctx).Where("id=?", data.ID).Updates(data)
 	if err := row.Error; err != nil {
 		return err
+	}
+
+	if row.RowsAffected == 0 {
+		return errors.New("payment_id not found")
 	}
 
 	return nil
@@ -66,11 +67,13 @@ func (r *PaymentsRepository) UpdatePayment(data domain.Payments) error {
 func (r *PaymentsRepository) DeletePayment(payment_id int) error {
 	ctx := context.Background()
 	row := r.DB.WithContext(ctx).Where("id=?", payment_id).Delete(&domain.Payments{})
-	if row.RowsAffected == 0 {
-		return errors.New("payment_id not found")
-	}
+
 	if err := row.Error; err != nil {
 		return err
+	}
+
+	if row.RowsAffected == 0 {
+		return errors.New("payment_id not found")
 	}
 
 	return nil
