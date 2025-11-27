@@ -14,8 +14,8 @@ import (
 
 type PaymentsRepository interface {
 	CreatePayment(data domain.Payments) (domain.Payments, error)
-	GetAllPayments() ([]domain.Payments, error)
-	GetPayment(payment_id int) (domain.Payments, error)
+	GetAllPayments(user_id int) ([]domain.Payments, error)
+	GetPayment(payment_id, user_id int) (domain.Payments, error)
 	UpdatePayment(data domain.Payments) error
 	DeletePayment(payment_id int) error
 	GetPaymentByOrderID(order_id int) (domain.Payments, error)
@@ -55,7 +55,7 @@ func (s *PaymentsService) CreatePayment(data domain.Payments, isWallet bool, use
 	if err != nil {
 		return domain.PaymentWithLink{}, err
 	}
-	order, err := s.orderRepo.GetOrder(data.OrderID)
+	order, err := s.orderRepo.GetOrder(data.OrderID, int(user_id))
 	if err != nil {
 		return domain.PaymentWithLink{}, err
 	}
@@ -81,6 +81,13 @@ func (s *PaymentsService) CreatePayment(data domain.Payments, isWallet bool, use
 		return domain.PaymentWithLink{}, err
 	}
 
+	order.OrderStatus = "AWAITING_PAYMENT"
+	order.UpdatedAt = time.Now()
+	err = s.orderRepo.UpdateOrder(order)
+	if err != nil {
+		return domain.PaymentWithLink{}, err
+	}
+
 	if paymentLink == "" {
 		return domain.PaymentWithLink{}, errors.New("payment link doesnt generated, please try again!")
 	}
@@ -94,20 +101,25 @@ func (s *PaymentsService) CreatePayment(data domain.Payments, isWallet bool, use
 		CreatedAt:     payment.CreatedAt,
 	}, nil
 }
-func (s *PaymentsService) GetAllPayments() ([]domain.Payments, error) {
-	return s.paymentRepo.GetAllPayments()
+func (s *PaymentsService) GetAllPayments(user_id int) ([]domain.Payments, error) {
+	return s.paymentRepo.GetAllPayments(user_id)
 }
-func (s *PaymentsService) GetPayment(payment_id int) (domain.Payments, error) {
-	return s.paymentRepo.GetPayment(payment_id)
+func (s *PaymentsService) GetPayment(payment_id, user_id int) (domain.Payments, error) {
+	return s.paymentRepo.GetPayment(payment_id, user_id)
 }
 func (s *PaymentsService) UpdatePayment(data domain.Payments, user_id, productId int, request rest.WebhookRequest, purpose string) error {
 	var errUpdate error
-	payment, err := s.paymentRepo.GetPayment(data.ID)
+	payment, err := s.paymentRepo.GetPayment(data.ID, user_id)
 	if err != nil {
 		return err
 	}
 	if payment.PaymentStatus == "PAID" {
 		return nil
+	}
+
+	order, err := s.orderRepo.GetOrder(payment.OrderID, user_id)
+	if err != nil {
+		return err
 	}
 
 	switch purpose {
@@ -130,10 +142,6 @@ func (s *PaymentsService) UpdatePayment(data domain.Payments, user_id, productId
 				return errors.New("insufficient stock")
 			}
 
-			order, err := s.orderRepo.GetOrder(payment.OrderID)
-			if err != nil {
-				return err
-			}
 			err = s.orderRepo.UpdateOrder(domain.Orders{
 				ID:            order.ID,
 				UserID:        order.UserID,
@@ -170,6 +178,21 @@ func (s *PaymentsService) UpdatePayment(data domain.Payments, user_id, productId
 
 			errUpdate = s.paymentRepo.UpdatePayment(data)
 		case "EXPIRED":
+			err = s.orderRepo.UpdateOrder(domain.Orders{
+				ID:            order.ID,
+				UserID:        order.UserID,
+				ProductID:     order.ProductID,
+				Quantity:      order.Quantity,
+				PriceEach:     order.PriceEach,
+				Subtotal:      order.Subtotal,
+				OrderStatus:   "PENDING",
+				PaymentMethod: request.PaymentMethod,
+				CreatedAt:     order.CreatedAt,
+				UpdatedAt:     time.Now(),
+			})
+			if err != nil {
+				return err
+			}
 			data.PaymentStatus = request.Status
 			errUpdate = s.paymentRepo.UpdatePayment(data)
 

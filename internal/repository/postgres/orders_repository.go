@@ -28,10 +28,10 @@ func (r *OrdersRepository) CreateOrder(data domain.Orders) (domain.Orders, error
 	return data, nil
 }
 
-func (r *OrdersRepository) GetAllOrders() ([]domain.Orders, error) {
+func (r *OrdersRepository) GetAllOrders(user_id int) ([]domain.Orders, error) {
 	ctx := context.Background()
 	var orders []domain.Orders
-	err := r.DB.WithContext(ctx).Find(&orders).Error
+	err := r.DB.WithContext(ctx).Where("user_id=?", user_id).Find(&orders).Error
 	if err != nil {
 		return nil, err
 	}
@@ -39,10 +39,10 @@ func (r *OrdersRepository) GetAllOrders() ([]domain.Orders, error) {
 	return orders, nil
 }
 
-func (r *OrdersRepository) GetOrder(order_id int) (domain.Orders, error) {
+func (r *OrdersRepository) GetOrder(order_id, user_id int) (domain.Orders, error) {
 	ctx := context.Background()
 	var order domain.Orders
-	err := r.DB.WithContext(ctx).Where("id=?", order_id).First(&order).Error
+	err := r.DB.WithContext(ctx).Where("id=?", order_id).Where("user_id=?", user_id).First(&order).Error
 	if err != nil {
 		return domain.Orders{}, err
 	}
@@ -74,9 +74,9 @@ func (r *OrdersRepository) UpdateOrder(data domain.Orders) error {
 	return nil
 }
 
-func (r *OrdersRepository) DeleteOrder(order_id int) error {
+func (r *OrdersRepository) DeleteOrder(order_id, user_id int) error {
 	ctx := context.Background()
-	row := r.DB.WithContext(ctx).Where("id=?", order_id).Delete(&domain.Orders{})
+	row := r.DB.WithContext(ctx).Where("id=?", order_id).Where("user_id=?", user_id).Delete(&domain.Orders{})
 	if row.RowsAffected == 0 {
 		return errors.New("order_id not found")
 	}

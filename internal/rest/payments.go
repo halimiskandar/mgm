@@ -4,6 +4,7 @@ import (
 	"myGreenMarket/domain"
 	"myGreenMarket/pkg/logger"
 	"net/http"
+	"strconv"
 
 	"github.com/AMFarhan21/fres"
 	"github.com/go-playground/validator/v10"
@@ -18,8 +19,8 @@ type (
 
 	PaymentsService interface {
 		CreatePayment(data domain.Payments, isWallet bool, user_id uint) (domain.PaymentWithLink, error)
-		GetAllPayments() ([]domain.Payments, error)
-		GetPayment(payment_id int) (domain.Payments, error)
+		GetAllPayments(user_id int) ([]domain.Payments, error)
+		GetPayment(payment_id, user_id int) (domain.Payments, error)
 		UpdatePayment(data domain.Payments, user_id, productId int, request WebhookRequest, purpose string) error
 		DeletePayment(payment_id int) error
 	}
@@ -61,4 +62,31 @@ func (h *PaymentsHandler) CreatePayment(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusCreated, fres.Response.StatusCreated(payment))
+}
+
+func (h *PaymentsHandler) GetPaymentsByID(c echo.Context) error {
+	id := c.Param("id")
+	payment_id, _ := strconv.Atoi(id)
+
+	user_id := c.Get("user_id").(uint)
+
+	payment, err := h.paymentsService.GetPayment(payment_id, int(user_id))
+	if err != nil {
+		logger.Error("Failed to get payment by id", err)
+		return c.JSON(http.StatusBadRequest, ResponseError{Message: err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, fres.Response.StatusOK(payment))
+}
+
+func (h *PaymentsHandler) GetAllPayments(c echo.Context) error {
+	user_id := c.Get("user_id").(uint)
+
+	payments, err := h.paymentsService.GetAllPayments(int(user_id))
+	if err != nil {
+		logger.Error("Failed to get all payments", err)
+		return c.JSON(http.StatusBadRequest, ResponseError{Message: err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, fres.Response.StatusOK(payments))
 }

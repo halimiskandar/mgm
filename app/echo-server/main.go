@@ -105,7 +105,10 @@ func main() {
 
 	// Setup routes
 	api := e.Group("/api/v1")
-	router.SetupUserRoutes(api, userHandler, ordersHandler, paymentsHandler, webhookHandler)
+	router.SetupUserRoutes(api, userHandler)
+	router.SetOrdersRoutes(api, ordersHandler)
+	router.SetPaymentsRoutes(api, paymentsHandler)
+	router.SetWebhookHandler(api, webhookHandler)
 
 	// Goroutine server
 	go func() {
