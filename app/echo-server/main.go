@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"log"
 	"myGreenMarket/app/echo-server/router"
+	"myGreenMarket/business/bandit"
+	"myGreenMarket/business/mockreco"
 	"myGreenMarket/business/orders"
 	"myGreenMarket/business/payments"
 	userService "myGreenMarket/business/user"
 	"myGreenMarket/internal/middleware"
 	"myGreenMarket/internal/repository/notification"
+
 	psqlRepo "myGreenMarket/internal/repository/postgres"
 	"myGreenMarket/internal/repository/xendit"
 	"myGreenMarket/internal/rest"
@@ -71,17 +74,28 @@ func main() {
 	ordersRepo := psqlRepo.NewOrdersRepository(db)
 	productsRepo := psqlRepo.NewProductRepository(db)
 	paymentsRepo := psqlRepo.NewPaymentsRepository(db)
+	banditRepo := psqlRepo.NewBanditRepository(db)
+	mockRecoRepo := psqlRepo.NewMockRecommendationRepository(db)
 
 	// Init service
 	userService := userService.NewUserService(userRepo, validate, mailjetEmail, cfg.App.AppEmailVerificationKey, cfg.App.AppDeploymentUrl)
 	ordersService := orders.NewOrdersService(ordersRepo, productsRepo)
 	paymentsService := payments.NewPaymentsService(paymentsRepo, xenditRepo, userRepo, ordersRepo, productsRepo)
+	banditService := bandit.NewBanditService(
+		banditRepo,   // BanditRepository (events)
+		productsRepo, // ProductRepository
+		banditRepo,   // BanditStateRepository (state)
+		mockRecoRepo, // OfflineRecommendationRepository (mock_recommendations)
+	)
+	mockRecoService := mockreco.NewService(mockRecoRepo)
 
 	// Init handler
 	userHandler := rest.NewUserHandler(userService)
 	ordersHandler := rest.NewOrdersHandler(ordersService)
 	paymentsHandler := rest.NewPaymentsHandler(paymentsService)
 	webhookHandler := rest.NewWebhookController(paymentsService)
+	banditHandler := rest.NewBanditHandler(banditService)
+	mockRecoHandler := rest.NewMockRecommendationHandler(mockRecoService)
 
 	// Init echo
 	e := echo.New()
@@ -109,6 +123,8 @@ func main() {
 	router.SetOrdersRoutes(api, ordersHandler)
 	router.SetPaymentsRoutes(api, paymentsHandler)
 	router.SetWebhookHandler(api, webhookHandler)
+	router.SetBanditRoutes(api, banditHandler)
+	router.SetMockRecommendationRoutes(api, mockRecoHandler)
 
 	// Goroutine server
 	go func() {
