@@ -26,23 +26,26 @@ func NewXenditRepository(cfg XenditConfig) *XenditRepository {
 	}
 }
 
-func (r XenditRepository) XenditInvoiceUrl(purpose, username, email, name, category string, userId, productID, quantity, paymentId int, amount float64) (string, error) {
+func (r XenditRepository) XenditInvoiceUrl(purpose, username, email, name, category string, userId, productID, quantity, paymentId int, amount, price float64) (string, error) {
 
 	url := r.xenditConfig.XenditUrl
 	method := "POST"
 	var description string
+	var duration int64
 	switch purpose {
 	case "TRANSFER":
 		description = fmt.Sprintf("payment order %.2f", amount)
+		duration = 3600
 	case "TOPUP":
 		description = fmt.Sprintf("top up wallet %.2f", amount)
+		duration = 86400
 	}
 
 	payload := strings.NewReader(fmt.Sprintf(`{
 		"external_id": "%d|%d|%d|%s",
 		"amount": %.2f,
 		"description": "%s",
-		"invoice_duration": 3600,
+		"invoice_duration": %d,
 		"customer": {
 			"email": "%s"
 		},
@@ -58,9 +61,9 @@ func (r XenditRepository) XenditInvoiceUrl(purpose, username, email, name, categ
 			}
 		],
 		"metadata": {
-			"store_branch": "Unknown"
+			"store": "MyGreenMarket"
 		}
-	}      `, paymentId, userId, productID, purpose, amount, description, email, r.xenditConfig.SuccessRedirectUrl, r.xenditConfig.FailureRedirectUrl, name, quantity, amount, category))
+	}      `, paymentId, userId, productID, purpose, amount, description, duration, email, r.xenditConfig.SuccessRedirectUrl, r.xenditConfig.FailureRedirectUrl, name, quantity, price, category))
 
 	client := &http.Client{}
 	req, err := http.NewRequest(method, url, payload)
@@ -87,7 +90,7 @@ func (r XenditRepository) XenditInvoiceUrl(purpose, username, email, name, categ
 	var xenditReponse domain.XenditResponse
 	err = json.Unmarshal(body, &xenditReponse)
 	if err != nil {
-		return "", nil
+		return "", err
 	}
 
 	return xenditReponse.InvoiceURL, nil

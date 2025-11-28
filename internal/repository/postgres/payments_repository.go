@@ -31,9 +31,7 @@ func (r *PaymentsRepository) CreatePayment(data domain.Payments) (domain.Payment
 func (r *PaymentsRepository) GetAllPayments(user_id int) ([]domain.Payments, error) {
 	ctx := context.Background()
 	var payments []domain.Payments
-	err := r.DB.WithContext(ctx).
-		Joins("join orders o on o.id = payments.order_id").
-		Where("o.user_id=?", user_id).Find(&payments).Error
+	err := r.DB.WithContext(ctx).Where("user_id=?", user_id).Find(&payments).Error
 	if err != nil {
 		return nil, err
 	}
@@ -44,9 +42,7 @@ func (r *PaymentsRepository) GetAllPayments(user_id int) ([]domain.Payments, err
 func (r *PaymentsRepository) GetPayment(payment_id, user_id int) (domain.Payments, error) {
 	ctx := context.Background()
 	var payment domain.Payments
-	err := r.DB.WithContext(ctx).
-		Joins("join orders o on o.id = payments.order_id").
-		Where("payments.id=?", payment_id).Where("o.user_id=?", user_id).First(&payment).Error
+	err := r.DB.WithContext(ctx).Where("payments.id=?", payment_id).Where("user_id=?", user_id).First(&payment).Error
 	if err != nil {
 		return domain.Payments{}, err
 	}

@@ -37,6 +37,7 @@ func SetOrdersRoutes(api *echo.Group, ordersHandler *rest.OrdersHandler) {
 func SetPaymentsRoutes(api *echo.Group, paymentsHandler *rest.PaymentsHandler) {
 	payments := api.Group("/payments", middleware.AuthMiddleware())
 	payments.POST("", paymentsHandler.CreatePayment)
+	payments.POST("/topup", paymentsHandler.TopUp)
 	payments.GET("/:id", paymentsHandler.GetPaymentsByID)
 	payments.GET("", paymentsHandler.GetAllPayments)
 
