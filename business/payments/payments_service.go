@@ -126,13 +126,12 @@ func (s *PaymentsService) ReceivePaymentWebhook(request rest.WebhookRequest) err
 		return nil
 	}
 
-	order, err := s.orderRepo.GetOrder(*payment.OrderID, userId)
-	if err != nil {
-		return err
-	}
-
 	switch purpose {
 	case "TRANSFER":
+		order, err := s.orderRepo.GetOrder(*payment.OrderID, userId)
+		if err != nil {
+			return err
+		}
 		switch request.Status {
 		case "PAID":
 
