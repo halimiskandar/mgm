@@ -41,7 +41,7 @@ func SetPaymentsRoutes(api *echo.Group, paymentsHandler *rest.PaymentsHandler) {
 	payments.POST("/topup", paymentsHandler.TopUp)
 	payments.GET("/:id", paymentsHandler.GetPaymentsByID)
 	payments.GET("", paymentsHandler.GetAllPayments)
-	payments.GET("/paid", paymentsHandler.PaidResponse)
+	api.GET("/paid", paymentsHandler.PaidResponse)
 }
 func SetWebhookHandler(api *echo.Group, webhookHandler *rest.WebhookController) {
 	webhook := api.Group("/webhook")
