@@ -1,4 +1,3 @@
-// business/bandit/features.go
 package bandit
 
 import (

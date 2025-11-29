@@ -22,7 +22,7 @@ type LinUCBState struct {
 func newArmState() *LinUCBArmState {
 	var A [linUCBFeatureDim][linUCBFeatureDim]float64
 	for i := 0; i < linUCBFeatureDim; i++ {
-		A[i][i] = 0.1 // 👈 smaller prior → higher initial uncertainty
+		A[i][i] = 0.1
 	}
 	return &LinUCBArmState{
 		A:           A,
