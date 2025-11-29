@@ -6,9 +6,11 @@ import (
 	"log"
 	"myGreenMarket/app/echo-server/router"
 	"myGreenMarket/business/bandit"
+	"myGreenMarket/business/category"
 	"myGreenMarket/business/mockreco"
 	"myGreenMarket/business/orders"
 	"myGreenMarket/business/payments"
+	"myGreenMarket/business/product"
 	userService "myGreenMarket/business/user"
 	"myGreenMarket/internal/middleware"
 	"myGreenMarket/internal/repository/notification"
@@ -84,11 +86,14 @@ func main() {
 	mockRecoRepo := psqlRepo.NewMockRecommendationRepository(db)
 	cfgRepo := psqlRepo.NewBanditConfigRepository(db)
 	segmentRepo := psqlRepo.NewUserSegmentRepository(db)
+	categoryRepo := psqlRepo.NewCategoryRepository(db)
 
 	// Init service
 	userService := userService.NewUserService(userRepo, validate, mailjetEmail, cfg.App.AppEmailVerificationKey, cfg.App.AppDeploymentUrl)
 	ordersService := orders.NewOrdersService(ordersRepo, productsRepo)
 	paymentsService := payments.NewPaymentsService(paymentsRepo, xenditRepo, userRepo, ordersRepo, productsRepo)
+	productService := product.NewProductService(productsRepo)
+	categoryService := category.NewCategoryService(categoryRepo)
 
 	eligChecker := bandit.NoopEligibilityChecker{}
 	defaultCfg := bandit.DefaultConfig()
@@ -106,12 +111,15 @@ func main() {
 
 	// Init handler
 	userHandler := rest.NewUserHandler(userService)
+	productHandler := rest.NewProductHandler(productService)
 	ordersHandler := rest.NewOrdersHandler(ordersService)
 	paymentsHandler := rest.NewPaymentsHandler(paymentsService)
 	webhookHandler := rest.NewWebhookController(paymentsService)
 	banditHandler := rest.NewBanditHandler(banditService)
 	mockRecoHandler := rest.NewMockRecommendationHandler(mockRecoService)
 	banditAdminHandler := rest.NewBanditAdminHandler(cfgRepo, segmentRepo)
+	categoryHandler := rest.NewCategoryHandler(categoryService)
+
 	// Init echo
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -149,18 +157,23 @@ func main() {
 	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
 
 	// Auth middleware
-	// authRequired := middleware.AuthMiddleware()
-	// adminOnly := middleware.AdminOnly()
+	authRequired := middleware.AuthMiddleware()
+	adminOnly := middleware.AdminOnly()
 
+	// authRequired := middleware.AuthMiddleware()
 	// Setup routes
 	api := e.Group("/api/v1")
 	router.SetupUserRoutes(api, userHandler)
+	router.SetupProductRoutes(api, productHandler, authRequired, adminOnly)
 	router.SetOrdersRoutes(api, ordersHandler)
 	router.SetPaymentsRoutes(api, paymentsHandler)
 	router.SetWebhookHandler(api, webhookHandler)
 	router.SetBanditRoutes(api, banditHandler)
 	router.SetBanditAdminRoutes(api, banditAdminHandler)
 	router.SetMockRecommendationRoutes(api, mockRecoHandler)
+	router.SetupCategoryRoutes(api, categoryHandler)
+	router.SetPaymentsRoutes(api, paymentsHandler)
+	router.SetWebhookHandler(api, webhookHandler)
 
 	// Goroutine server
 	go func() {

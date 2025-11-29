@@ -15,13 +15,15 @@ func SetupUserRoutes(api *echo.Group, handler *rest.UserHandler) {
 	users.POST("/login", handler.Login)
 }
 
-func SetupProductRoutes(api *echo.Group, handler *rest.ProductHandler) {
+func SetupProductRoutes(api *echo.Group, handler *rest.ProductHandler, authRequired echo.MiddlewareFunc, adminOnly echo.MiddlewareFunc) {
 	products := api.Group("/products")
 
-	products.GET("", handler.GetAllProducts)
-	products.POST("", handler.CreateProduct)
-	products.PUT("/:id", handler.UpdateProduct)
-	products.DELETE("/:id", handler.DeleteProduct)
+	products.GET("", handler.GetAllProducts, authRequired)
+	products.GET("/:id", handler.GetProductByID, authRequired)
+	products.POST("", handler.CreateProduct, authRequired, adminOnly)
+	products.PUT("/:id", handler.UpdateProduct, authRequired, adminOnly)
+	products.DELETE("/:id", handler.DeleteProduct, authRequired, adminOnly)
+
 }
 
 func SetOrdersRoutes(api *echo.Group, ordersHandler *rest.OrdersHandler) {
@@ -37,10 +39,12 @@ func SetOrdersRoutes(api *echo.Group, ordersHandler *rest.OrdersHandler) {
 func SetPaymentsRoutes(api *echo.Group, paymentsHandler *rest.PaymentsHandler) {
 	payments := api.Group("/payments", middleware.AuthMiddleware())
 	payments.POST("", paymentsHandler.CreatePayment)
+	payments.POST("/topup", paymentsHandler.TopUp)
 	payments.GET("/:id", paymentsHandler.GetPaymentsByID)
 	payments.GET("", paymentsHandler.GetAllPayments)
-
+	api.GET("/paid", paymentsHandler.PaidResponse)
 }
+
 func SetWebhookHandler(api *echo.Group, webhookHandler *rest.WebhookController) {
 	webhook := api.Group("/webhook")
 	webhook.POST("/handler", webhookHandler.HandleWebhook)
@@ -66,4 +70,14 @@ func SetBanditAdminRoutes(api *echo.Group, handler *rest.BanditAdminHandler) {
 	admin.PUT("/config", handler.UpsertConfig)
 	admin.GET("/segment", handler.GetSegment)
 	admin.PUT("/segment", handler.UpsertSegment)
+}
+
+func SetupCategoryRoutes(api *echo.Group, handler *rest.CategoryHandler) {
+	categories := api.Group("/categories")
+
+	categories.GET("", handler.GetAllCategories)
+	categories.GET("/:id", handler.GetCategoryByID)
+	categories.POST("", handler.CreateCategory)
+	categories.PUT("/:id", handler.UpdateCategory)
+	categories.DELETE("/:id", handler.DeleteCategory)
 }

@@ -2,10 +2,7 @@ package rest
 
 import (
 	"log"
-	"myGreenMarket/domain"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/AMFarhan21/fres"
@@ -70,16 +67,7 @@ func (ctrl WebhookController) HandleWebhook(c echo.Context) error {
 
 	log.Print("Received webhook from Xendit:", request)
 
-	externalID := strings.Split(request.ExternalID, "|")
-
-	paymentId, _ := strconv.Atoi(externalID[0])
-	userId, _ := strconv.Atoi(externalID[1])
-	productId, _ := strconv.Atoi(externalID[2])
-	purpose := externalID[3]
-
-	err := ctrl.paymentService.UpdatePayment(domain.Payments{
-		ID: paymentId,
-	}, userId, productId, request, purpose)
+	err := ctrl.paymentService.ReceivePaymentWebhook(request)
 	if err != nil {
 		log.Println("Failed to update payment status:", err.Error())
 		return c.JSON(http.StatusInternalServerError, fres.Response.StatusInternalServerError(http.StatusInternalServerError))
