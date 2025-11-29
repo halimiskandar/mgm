@@ -47,3 +47,13 @@ func SetWebhookHandler(api *echo.Group, webhookHandler *rest.WebhookController) 
 	webhook := api.Group("/webhook")
 	webhook.POST("/handler", webhookHandler.HandleWebhook)
 }
+
+func SetupCategoryRoutes(api *echo.Group, handler *rest.CategoryHandler) {
+	categories := api.Group("/categories")
+
+	categories.GET("", handler.GetAllCategories)
+	categories.GET("/:id", handler.GetCategoryByID)
+	categories.POST("", handler.CreateCategory)
+	categories.PUT("/:id", handler.UpdateCategory)
+	categories.DELETE("/:id", handler.DeleteCategory)
+}
