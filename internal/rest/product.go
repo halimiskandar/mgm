@@ -14,6 +14,7 @@ import (
 
 type ProductService interface {
 	GetAllProducts(ctx context.Context) ([]domain.Product, error)
+	GetProductByID(ctx context.Context, id uint) (*domain.Product, error)
 	CreateProduct(ctx context.Context, product *domain.Product) (*domain.Product, error)
 	UpdateProduct(ctx context.Context, product *domain.Product) (*domain.Product, error)
 	DeleteProduct(ctx context.Context, id uint64) error
@@ -72,6 +73,32 @@ func (h *ProductHandler) GetAllProducts(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"message":  "successfully get all products",
 		"products": products,
+	})
+}
+
+func (h *ProductHandler) GetProductByID(c echo.Context) error {
+	productIdStr := c.Param("id")
+
+	productId, err := strconv.ParseUint(productIdStr, 10, 64)
+	if err != nil {
+		logger.Error("Invalid venue id", err)
+		return c.JSON(http.StatusBadRequest, ResponseError{Message: err.Error()})
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request().Context(), h.timeout)
+	defer cancel()
+
+	product, err := h.productService.GetProductByID(ctx, uint(productId))
+	if err != nil {
+		if err.Error() == "product not found" {
+			return c.JSON(http.StatusBadRequest, ResponseError{Message: err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, ResponseError{Message: err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"message": "successfully find product by id",
+		"product": product,
 	})
 }
 

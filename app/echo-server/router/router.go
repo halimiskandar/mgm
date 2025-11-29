@@ -15,13 +15,14 @@ func SetupUserRoutes(api *echo.Group, handler *rest.UserHandler) {
 	users.POST("/login", handler.Login)
 }
 
-func SetupProductRoutes(api *echo.Group, handler *rest.ProductHandler) {
+func SetupProductRoutes(api *echo.Group, handler *rest.ProductHandler, authRequired echo.MiddlewareFunc, adminOnly echo.MiddlewareFunc) {
 	products := api.Group("/products")
 
-	products.GET("", handler.GetAllProducts)
-	products.POST("", handler.CreateProduct)
-	products.PUT("/:id", handler.UpdateProduct)
-	products.DELETE("/:id", handler.DeleteProduct)
+	products.GET("", handler.GetAllProducts, authRequired)
+	products.GET("/:id", handler.GetProductByID, authRequired)
+	products.POST("", handler.CreateProduct, authRequired, adminOnly)
+	products.PUT("/:id", handler.UpdateProduct, authRequired, adminOnly)
+	products.DELETE("/:id", handler.DeleteProduct, authRequired, adminOnly)
 
 }
 
@@ -43,6 +44,7 @@ func SetPaymentsRoutes(api *echo.Group, paymentsHandler *rest.PaymentsHandler) {
 	payments.GET("", paymentsHandler.GetAllPayments)
 	api.GET("/paid", paymentsHandler.PaidResponse)
 }
+
 func SetWebhookHandler(api *echo.Group, webhookHandler *rest.WebhookController) {
 	webhook := api.Group("/webhook")
 	webhook.POST("/handler", webhookHandler.HandleWebhook)

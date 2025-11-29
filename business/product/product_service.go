@@ -42,6 +42,26 @@ func (s *productService) GetAllProducts(ctx context.Context) ([]domain.Product, 
 	return product, nil
 }
 
+func (s *productService) GetProductByID(ctx context.Context, id uint) (*domain.Product, error) {
+	if id == 0 {
+		logger.Error("invalid product id")
+		return nil, errors.New("invalid product id")
+	}
+
+	if err := ctx.Err(); err != nil {
+		logger.Error("context error when create product")
+		return nil, fmt.Errorf("context error: %w", err)
+	}
+
+	product, err := s.productRepo.FindByID(ctx, uint64(id))
+	if err != nil {
+		logger.Error("failed to find product by id", err.Error())
+		return nil, err
+	}
+
+	return &product, nil
+}
+
 func (s *productService) CreateProduct(ctx context.Context, product *domain.Product) (*domain.Product, error) {
 	if err := ctx.Err(); err != nil {
 		logger.Error("context error when create product")
