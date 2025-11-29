@@ -5,13 +5,17 @@ import (
 	"fmt"
 	"log"
 	"myGreenMarket/app/echo-server/router"
+	"myGreenMarket/business/bandit"
 	"myGreenMarket/business/category"
+	"myGreenMarket/business/mockreco"
 	"myGreenMarket/business/orders"
 	"myGreenMarket/business/payments"
 	"myGreenMarket/business/product"
 	userService "myGreenMarket/business/user"
 	"myGreenMarket/internal/middleware"
 	"myGreenMarket/internal/repository/notification"
+	"myGreenMarket/pkg/metrics"
+
 	psqlRepo "myGreenMarket/internal/repository/postgres"
 	"myGreenMarket/internal/repository/xendit"
 	"myGreenMarket/internal/rest"
@@ -25,15 +29,20 @@ import (
 	"time"
 
 	"github.com/go-playground/validator/v10"
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	echomiddleware "github.com/labstack/echo/v4/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
+
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+
+	metrics.Init()
 
 	logger.Init(cfg.App.Environment)
 	logger.Info("Starting MyGreenMarket", "version", cfg.App.Version)
@@ -73,6 +82,10 @@ func main() {
 	ordersRepo := psqlRepo.NewOrdersRepository(db)
 	productsRepo := psqlRepo.NewProductRepository(db)
 	paymentsRepo := psqlRepo.NewPaymentsRepository(db)
+	banditRepo := psqlRepo.NewBanditRepository(db)
+	mockRecoRepo := psqlRepo.NewMockRecommendationRepository(db)
+	cfgRepo := psqlRepo.NewBanditConfigRepository(db)
+	segmentRepo := psqlRepo.NewUserSegmentRepository(db)
 	categoryRepo := psqlRepo.NewCategoryRepository(db)
 
 	// Init service
@@ -82,16 +95,52 @@ func main() {
 	productService := product.NewProductService(productsRepo)
 	categoryService := category.NewCategoryService(categoryRepo)
 
+	eligChecker := bandit.NoopEligibilityChecker{}
+	defaultCfg := bandit.DefaultConfig()
+	banditService := bandit.NewBanditService(
+		banditRepo,   // BanditRepository (events + state)
+		productsRepo, // ProductRepository
+		banditRepo,   // BanditStateRepository (state)
+		eligChecker,  // EligibilityChecker
+		mockRecoRepo, // OfflineRecommendationRepository
+		cfgRepo,      // ConfigRepository
+		segmentRepo,  // SegmentRepository
+		defaultCfg,   // base Config
+	)
+	mockRecoService := mockreco.NewService(mockRecoRepo)
+
 	// Init handler
 	userHandler := rest.NewUserHandler(userService)
 	productHandler := rest.NewProductHandler(productService)
 	ordersHandler := rest.NewOrdersHandler(ordersService)
 	paymentsHandler := rest.NewPaymentsHandler(paymentsService)
 	webhookHandler := rest.NewWebhookController(paymentsService)
+	banditHandler := rest.NewBanditHandler(banditService)
+	mockRecoHandler := rest.NewMockRecommendationHandler(mockRecoService)
+	banditAdminHandler := rest.NewBanditAdminHandler(cfgRepo, segmentRepo)
 	categoryHandler := rest.NewCategoryHandler(categoryService)
 
 	// Init echo
 	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			req := c.Request()
+			ctx := req.Context()
+
+			traceID := req.Header.Get("X-Request-Id")
+			if traceID == "" {
+				traceID = uuid.NewString()
+			}
+
+			ctx = context.WithValue(ctx, bandit.TraceIDKey, traceID)
+			c.SetRequest(req.WithContext(ctx))
+
+			// optionally add to response header
+			c.Response().Header().Set("X-Request-Id", traceID)
+
+			return next(c)
+		}
+	})
 	e.HideBanner = true
 	e.HidePort = true
 
@@ -105,6 +154,7 @@ func main() {
 		AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch},
 		AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization},
 	}))
+	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
 
 	// Auth middleware
 	authRequired := middleware.AuthMiddleware()
@@ -118,6 +168,9 @@ func main() {
 	router.SetOrdersRoutes(api, ordersHandler)
 	router.SetPaymentsRoutes(api, paymentsHandler)
 	router.SetWebhookHandler(api, webhookHandler)
+	router.SetBanditRoutes(api, banditHandler)
+	router.SetBanditAdminRoutes(api, banditAdminHandler)
+	router.SetMockRecommendationRoutes(api, mockRecoHandler)
 	router.SetupCategoryRoutes(api, categoryHandler)
 	router.SetPaymentsRoutes(api, paymentsHandler)
 	router.SetWebhookHandler(api, webhookHandler)
