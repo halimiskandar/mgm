@@ -23,6 +23,7 @@ type Product struct {
 	ID              uint64    `gorm:"primaryKey;autoIncrement"`
 	ProductID       uint64    `gorm:"column:product_id"`
 	ProductSKUID    uint64    `gorm:"column:product_skuid"`
+	CategoryID      uint64    `gorm:"column:category_id;default:0"`
 	IsGreenTag      bool      `gorm:"column:is_green_tag;default:false"`
 	ProductName     string    `gorm:"column:product_name;type:text"`
 	ProductCategory string    `gorm:"column:product_category;type:text"`

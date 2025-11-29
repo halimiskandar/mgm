@@ -37,6 +37,7 @@ func NewProductHandler(productService ProductService) *ProductHandler {
 type CreateProductRequest struct {
 	ProductID       uint64  `json:"product_id"`
 	ProductSKUID    uint64  `json:"product_skuid"`
+	CategoryID      uint64  `json:"category_id"`
 	IsGreenTag      bool    `json:"is_green_tag"`
 	ProductName     string  `json:"product_name" validate:"required"`
 	ProductCategory string  `json:"product_category" validate:"required"`
@@ -50,6 +51,7 @@ type CreateProductRequest struct {
 type UpdateProductRequest struct {
 	ProductID       uint64  `json:"product_id"`
 	ProductSKUID    uint64  `json:"product_skuid"`
+	CategoryID      uint64  `json:"category_id"`
 	IsGreenTag      bool    `json:"is_green_tag"`
 	ProductName     string  `json:"product_name" validate:"required"`
 	ProductCategory string  `json:"product_category" validate:"required"`
@@ -121,6 +123,7 @@ func (h *ProductHandler) CreateProduct(c echo.Context) error {
 	product := &domain.Product{
 		ProductID:       req.ProductID,
 		ProductSKUID:    req.ProductSKUID,
+		CategoryID:      req.CategoryID,
 		IsGreenTag:      req.IsGreenTag,
 		ProductName:     req.ProductName,
 		ProductCategory: req.ProductCategory,
@@ -178,6 +181,7 @@ func (h *ProductHandler) UpdateProduct(c echo.Context) error {
 		ID:              ProductId,
 		ProductID:       req.ProductID,
 		ProductSKUID:    req.ProductSKUID,
+		CategoryID:      req.CategoryID,
 		IsGreenTag:      req.IsGreenTag,
 		ProductName:     req.ProductName,
 		ProductCategory: req.ProductCategory,

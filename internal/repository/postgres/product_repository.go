@@ -72,6 +72,7 @@ func (r *ProductRepository) Update(ctx context.Context, product *domain.Product)
 	updateData := map[string]interface{}{
 		"product_id":       product.ProductID,
 		"product_skuid":    product.ProductSKUID,
+		"category_id":      product.CategoryID,
 		"is_green_tag":     product.IsGreenTag,
 		"product_name":     product.ProductName,
 		"product_category": product.ProductCategory,
