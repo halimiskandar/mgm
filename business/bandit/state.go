@@ -2,7 +2,7 @@ package bandit
 
 import "time"
 
-const linUCBFeatureDim = 6
+const linUCBFeatureDim = 7
 
 // Per arm/product LinUCB parameters.
 type LinUCBArmState struct {

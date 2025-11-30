@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"time"
 
 	"myGreenMarket/domain"
 	"myGreenMarket/pkg/logger"
@@ -15,6 +16,7 @@ func (s *BanditService) DebugRecommend(
 	userID uint,
 	slot string,
 	limit int,
+	ctxMap map[string]any,
 ) ([]domain.DebugRecommendation, error) {
 
 	if err := ctx.Err(); err != nil {
@@ -26,6 +28,16 @@ func (s *BanditService) DebugRecommend(
 
 	// 1) figure out variant + config + segment (same as Recommend) -----
 	cfg, seg, variant := s.loadConfigForUser(ctx, userID, slot)
+	// Build the same base context as Recommend/LogFeedback.
+	now := time.Now()
+	platform := ""
+	if ctxMap != nil {
+		if p, ok := ctxMap["platform"].(string); ok {
+			platform = p
+		}
+	}
+	baseCtx := buildBaseContext(now, platform, seg, variant)
+	fullCtx := mergeContext(baseCtx, ctxMap)
 	slotKey := stateSlotKey(slot, seg)
 
 	// trace logging
@@ -113,7 +125,7 @@ func (s *BanditService) DebugRecommend(
 			}
 
 			// feature vector
-			x := buildFeatureVector(userID, slot, pid, cfg, seg)
+			x := buildFeatureVector(userID, slot, pid, cfg, seg, fullCtx)
 
 			// A^-1
 			AInv, err := invert4x4(arm.A)
@@ -124,7 +136,7 @@ func (s *BanditService) DebugRecommend(
 			}
 
 			theta := matVecMul(AInv, arm.B)
-
+			fv := buildFeatureVector(userID, slot, pid, cfg, seg, fullCtx)
 			// UCB components for debug fields
 			mean := dot(theta, x)
 			tmp := matVecMul(AInv, x)
@@ -171,6 +183,12 @@ func (s *BanditService) DebugRecommend(
 					BanditUncertainty: uncertainty,
 					BanditUCB:         ucb,
 					FinalScore:        final,
+
+					// 🔹 here we use fv
+					Features: featuresToSlice(fv),
+					Context:  fullCtx,
+					Segment:  seg,
+					Variant:  variant,
 				},
 				score: final,
 			})
@@ -198,4 +216,11 @@ func (s *BanditService) DebugRecommend(
 	}
 
 	return out, nil
+}
+func featuresToSlice(fv [linUCBFeatureDim]float64) []float64 {
+	out := make([]float64, linUCBFeatureDim)
+	for i := 0; i < linUCBFeatureDim; i++ {
+		out[i] = fv[i]
+	}
+	return out
 }

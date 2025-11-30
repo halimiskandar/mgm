@@ -10,9 +10,9 @@ const decayRate = 0.001 // soft forgetting
 // y = A * x
 func matVecMul(A [linUCBFeatureDim][linUCBFeatureDim]float64, x [linUCBFeatureDim]float64) [linUCBFeatureDim]float64 {
 	var y [linUCBFeatureDim]float64
-	for i := range linUCBFeatureDim {
+	for i := 0; i < linUCBFeatureDim; i++ {
 		sum := 0.0
-		for j := range linUCBFeatureDim {
+		for j := 0; j < linUCBFeatureDim; j++ {
 			sum += A[i][j] * x[j]
 		}
 		y[i] = sum
@@ -22,7 +22,7 @@ func matVecMul(A [linUCBFeatureDim][linUCBFeatureDim]float64, x [linUCBFeatureDi
 
 func dot(a, b [linUCBFeatureDim]float64) float64 {
 	sum := 0.0
-	for i := range linUCBFeatureDim {
+	for i := 0; i < linUCBFeatureDim; i++ {
 		sum += a[i] * b[i]
 	}
 	return sum
@@ -30,8 +30,8 @@ func dot(a, b [linUCBFeatureDim]float64) float64 {
 
 // A := A + x x^T
 func addOuter(A *[linUCBFeatureDim][linUCBFeatureDim]float64, x [linUCBFeatureDim]float64) {
-	for i := range linUCBFeatureDim {
-		for j := range linUCBFeatureDim {
+	for i := 0; i < linUCBFeatureDim; i++ {
+		for j := 0; j < linUCBFeatureDim; j++ {
 			(*A)[i][j] += x[i] * x[j]
 		}
 	}
@@ -39,7 +39,7 @@ func addOuter(A *[linUCBFeatureDim][linUCBFeatureDim]float64, x [linUCBFeatureDi
 
 // b := b + r x
 func addScaled(b *[linUCBFeatureDim]float64, x [linUCBFeatureDim]float64, r float64) {
-	for i := range linUCBFeatureDim {
+	for i := 0; i < linUCBFeatureDim; i++ {
 		(*b)[i] += r * x[i]
 	}
 }
@@ -51,8 +51,8 @@ func applyDecay(arm *LinUCBArmState) {
 	}
 	decay := 1.0 - decayRate
 
-	for i := range linUCBFeatureDim {
-		for j := range linUCBFeatureDim {
+	for i := 0; i < linUCBFeatureDim; i++ {
+		for j := 0; j < linUCBFeatureDim; j++ {
 			arm.A[i][j] *= decay
 		}
 		arm.B[i] *= decay
@@ -63,37 +63,38 @@ func applyDecay(arm *LinUCBArmState) {
 	}
 }
 
-// Invert 4x4 matrix using Gauss-Jordan.
+// "invert4x4" now inverts a linUCBFeatureDim x linUCBFeatureDim matrix using Gauss–Jordan.
+
 func invert4x4(A [linUCBFeatureDim][linUCBFeatureDim]float64) ([linUCBFeatureDim][linUCBFeatureDim]float64, error) {
 	var aug [linUCBFeatureDim][2 * linUCBFeatureDim]float64
 
 	// Build augmented [A | I]
-	for i := range linUCBFeatureDim {
-		for j := range linUCBFeatureDim {
+	for i := 0; i < linUCBFeatureDim; i++ {
+		for j := 0; j < linUCBFeatureDim; j++ {
 			aug[i][j] = A[i][j]
 		}
 		aug[i][linUCBFeatureDim+i] = 1.0
 	}
 
 	// Gauss–Jordan elimination
-	for col := range linUCBFeatureDim {
+	for col := 0; col < linUCBFeatureDim; col++ {
 		pivot := aug[col][col]
 		if math.Abs(pivot) < 1e-9 {
 			return [linUCBFeatureDim][linUCBFeatureDim]float64{}, fmt.Errorf("matrix is singular")
 		}
 
 		// Normalize pivot row
-		for j := range 2 * linUCBFeatureDim {
+		for j := 0; j < 2*linUCBFeatureDim; j++ {
 			aug[col][j] /= pivot
 		}
 
 		// Eliminate other rows
-		for i := range linUCBFeatureDim {
+		for i := 0; i < linUCBFeatureDim; i++ {
 			if i == col {
 				continue
 			}
 			factor := aug[i][col]
-			for j := range 2 * linUCBFeatureDim {
+			for j := 0; j < 2*linUCBFeatureDim; j++ {
 				aug[i][j] -= factor * aug[col][j]
 			}
 		}
@@ -101,8 +102,8 @@ func invert4x4(A [linUCBFeatureDim][linUCBFeatureDim]float64) ([linUCBFeatureDim
 
 	// Extract inverse
 	var inv [linUCBFeatureDim][linUCBFeatureDim]float64
-	for i := range linUCBFeatureDim {
-		for j := range linUCBFeatureDim {
+	for i := 0; i < linUCBFeatureDim; i++ {
+		for j := 0; j < linUCBFeatureDim; j++ {
 			inv[i][j] = aug[i][linUCBFeatureDim+j]
 		}
 	}

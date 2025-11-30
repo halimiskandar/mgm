@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"time"
+
 	"myGreenMarket/business/bandit"
 
 	"gorm.io/gorm"
@@ -9,9 +11,9 @@ import (
 )
 
 type UserBanditSegment struct {
-	UserID    uint  `gorm:"column:user_id;primaryKey"`
-	Segment   int   `gorm:"column:segment;not null"`
-	UpdatedAt int64 `gorm:"column:updated_at"`
+	UserID    uint      `gorm:"column:user_id;primaryKey"`
+	Segment   int       `gorm:"column:segment;not null"`
+	UpdatedAt time.Time `gorm:"column:updated_at;autoUpdateTime"`
 }
 
 type UserSegmentRepository struct {
@@ -37,10 +39,13 @@ func (r *UserSegmentRepository) GetSegment(ctx context.Context, userID uint) (in
 }
 
 func (r *UserSegmentRepository) UpsertSegment(ctx context.Context, userID uint, segment int) error {
+	now := time.Now()
 	row := UserBanditSegment{
-		UserID:  userID,
-		Segment: segment,
+		UserID:    userID,
+		Segment:   segment,
+		UpdatedAt: now,
 	}
+
 	return r.DB.WithContext(ctx).
 		Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "user_id"}},

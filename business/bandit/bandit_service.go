@@ -25,6 +25,44 @@ const (
 	VariantOfflineOnly = 2
 )
 
+// buildBaseContext builds the standard context used for both recommendation & feedback.
+// `platform` can be "android", "ios", "web", etc.
+func buildBaseContext(now time.Time, platform string, segment, variant int) map[string]any {
+	return map[string]any{
+		"time_bucket": computeTimeBucket(now), // you implement this (morning/afternoon/evening)
+		"dow":         int(now.Weekday()),     // 0=Sunday, 1=Monday, ...
+		"platform":    platform,
+		"segment":     segment,
+		"variant":     variant,
+		"event_time":  now.Format(time.RFC3339),
+	}
+}
+func computeTimeBucket(t time.Time) string {
+	h := t.Hour()
+	switch {
+	case h < 6:
+		return "night"
+	case h < 12:
+		return "morning"
+	case h < 18:
+		return "afternoon"
+	default:
+		return "evening"
+	}
+}
+
+// mergeContext merges multiple maps into a new one.
+
+func mergeContext(maps ...map[string]any) map[string]any {
+	out := make(map[string]any)
+	for _, m := range maps {
+		for k, v := range m {
+			out[k] = v
+		}
+	}
+	return out
+}
+
 // ---- Repository interfaces ----
 
 // Offline model output from mock_recommendations
@@ -96,6 +134,17 @@ func (s *BanditService) LogFeedback(
 
 	// 1) derive cfg + segment + variant using the same A/B engine as Recommend.
 	cfg, seg, variant := s.loadConfigForUser(ctx, event.UserID, event.Slot)
+	now := time.Now()
+	platform := ""
+	if event.Context != nil {
+		if p, ok := event.Context["platform"].(string); ok {
+			platform = p
+		}
+	}
+	baseCtx := buildBaseContext(now, platform, seg, variant)
+
+	// merge existing event.Context (from client) with baseCtx
+	event.Context = mergeContext(baseCtx, event.Context)
 
 	// 2) compute reward using config-aware business rules
 	reward, err := cfg.RewardForEvent(event)
@@ -103,7 +152,7 @@ func (s *BanditService) LogFeedback(
 		return err
 	}
 
-	// keep variant info in event so we can analyze later
+	// keep variant info in event for later analysis
 	event.Variant = variant
 
 	tid := TraceIDFromContext(ctx)
@@ -142,7 +191,7 @@ func (s *BanditService) LogFeedback(
 	}
 
 	// rebuild feature vector using cfg + segment
-	x := buildFeatureVector(event.UserID, event.Slot, event.ProductID, cfg, seg)
+	x := buildFeatureVector(event.UserID, event.Slot, event.ProductID, cfg, seg, event.Context)
 
 	// Apply decay so old behavior slowly fades
 	applyDecay(arm)
@@ -173,6 +222,7 @@ func (s *BanditService) Recommend(
 	userID uint,
 	slot string,
 	limit int,
+	reqCtx map[string]any,
 ) ([]domain.BanditRecommendation, error) {
 
 	if err := ctx.Err(); err != nil {
@@ -193,6 +243,20 @@ func (s *BanditService) Recommend(
 
 	// 2) config + segment + variant for this user & slot
 	cfg, seg, variant := s.loadConfigForUser(ctx, userID, slot)
+
+	// build base context (time, dow, segment, variant, platform)
+	now := time.Now()
+	platform := ""
+	if reqCtx != nil {
+		if p, ok := reqCtx["platform"].(string); ok {
+			platform = p
+		}
+	}
+	baseCtx := buildBaseContext(now, platform, seg, variant)
+
+	// fullCtx = base + request-provided ctx (page_name, user_segment_override, etc.)
+	fullCtx := mergeContext(baseCtx, reqCtx)
+
 	slotKey := stateSlotKey(slot, seg)
 
 	// trace logging
@@ -234,7 +298,7 @@ func (s *BanditService) Recommend(
 	}
 
 	// 5) score candidates (Option C – part A cold-boost is inside)
-	recs := s.scoreCandidates(ctx, userID, slot, offlineRows, state, cfg, seg, variant, limit)
+	recs := s.scoreCandidates(ctx, userID, slot, offlineRows, state, cfg, seg, variant, limit, fullCtx)
 
 	// 6) save updated state
 	if err := s.stateRepo.SaveState(ctx, slotKey, state); err != nil {
@@ -256,6 +320,7 @@ func (s *BanditService) scoreCandidates(
 	segment int,
 	variant int,
 	limit int,
+	ctxMap map[string]any,
 ) []domain.BanditRecommendation {
 
 	if len(offlineRows) == 0 || limit <= 0 {
@@ -301,7 +366,7 @@ func (s *BanditService) scoreCandidates(
 		}
 
 		// feature vector for this impression
-		x := buildFeatureVector(userID, slot, pid, cfg, segment)
+		x := buildFeatureVector(userID, slot, pid, cfg, segment, ctxMap)
 
 		// A^-1
 		AInv, err := invert4x4(arm.A)

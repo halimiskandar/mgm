@@ -2,6 +2,7 @@ package bandit
 
 import (
 	"fmt"
+	"hash/fnv"
 	"time"
 )
 
@@ -23,64 +24,160 @@ func timeBucket(hour int) float64 {
 	}
 }
 
-// day-of-week: 0..6 → 0..1
-func dowBucket(d int) float64 {
-	if d < 0 || d > 6 {
+func timeBucketFromHour(hour int) float64 {
+	switch {
+	case hour < 6:
 		return 0.0
+	case hour < 12:
+		return 0.33
+	case hour < 18:
+		return 0.66
+	default:
+		return 1.0
 	}
-	return float64(d) / 6.0
 }
 
-// slot string hash → [0,1]
+// timeBucketFromLabel maps the labels produced by computeTimeBucket
+// ("night", "morning", "afternoon", "evening") to the same numeric buckets.
+func timeBucketFromLabel(label string) (float64, bool) {
+	switch label {
+	case "night":
+		return 0.0, true
+	case "morning":
+		return 0.33, true
+	case "afternoon":
+		return 0.66, true
+	case "evening":
+		return 1.0, true
+	default:
+		// unknown – let caller decide to fallback
+		return 0.5, false
+	}
+}
+
+// dowBucket encodes day-of-week (0=Sunday .. 6=Saturday) into [0, 1].
+func dowBucket(dow int) float64 {
+	if dow < 0 {
+		dow = 0
+	} else if dow > 6 {
+		dow = 6
+	}
+	return float64(dow) / 6.0
+}
+
+// hashToUnit deterministically hashes a string into [0, 1].
+func hashToUnit(s string) float64 {
+	if s == "" {
+		return 0
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(s))
+	return float64(h.Sum32()) / float64(^uint32(0))
+}
+
 func slotHash(slot string) float64 {
-	var h uint32 = 2166136261
-	for i := 0; i < len(slot); i++ {
-		h ^= uint32(slot[i])
-		h *= 16777619
+	if slot == "" {
+		return 0
 	}
-	return float64(h%1000) / 1000.0
+	return hashToUnit("slot:" + slot)
 }
 
-// product hash → [0,1]
-func productHash(productID uint64) float64 {
-	return float64(productID%1000) / 1000.0
+func platformBucket(platform string) float64 {
+	if platform == "" {
+		// neutral default when platform is unknown
+		return 0.5
+	}
+	return hashToUnit("platform:" + platform)
 }
 
-// user hash → [0,1]
 func userHash(userID uint) float64 {
-	return float64(userID%1000) / 1000.0
+	if userID == 0 {
+		return 0
+	}
+	return hashToUnit(fmt.Sprintf("user:%d", userID))
 }
 
-func buildFeatureVector(userID uint, slot string, productID uint64, cfg Config, seg int) [linUCBFeatureDim]float64 {
+func productHash(productID uint64) float64 {
+	if productID == 0 {
+		return 0
+	}
+	return hashToUnit(fmt.Sprintf("product:%d", productID))
+}
+
+func buildFeatureVector(
+	userID uint,
+	slot string,
+	productID uint64,
+	cfg Config,
+	seg int,
+	ctxMap map[string]any,
+) [linUCBFeatureDim]float64 {
+
+	// Defaults from "now"; can be overridden by ctxMap.
 	now := time.Now()
 	hour := now.Hour()
 	dow := int(now.Weekday())
+	platform := ""
 
-	out := [linUCBFeatureDim]float64{}
+	var tbFromLabel float64
+	hasTbLabel := false
 
+	if ctxMap != nil {
+		if tbLabel, ok := ctxMap["time_bucket"].(string); ok {
+			if v, ok2 := timeBucketFromLabel(tbLabel); ok2 {
+				tbFromLabel = v
+				hasTbLabel = true
+			}
+		}
+		if d, ok := ctxMap["dow"].(int); ok {
+			dow = d
+		}
+		if p, ok := ctxMap["platform"].(string); ok {
+			platform = p
+		}
+	}
+
+	var x [linUCBFeatureDim]float64
+
+	// index 0: bias
 	if cfg.Features.UseBias {
-		out[0] = 1.0
-	}
-	if cfg.Features.UseTimeBucket {
-		out[1] = timeBucket(hour)
-	}
-	if cfg.Features.UseDowBucket {
-		out[2] = dowBucket(dow)
-	}
-	if cfg.Features.UseSlotHash {
-		out[3] = slotHash(slot)
-	}
-	if cfg.Features.UseSegment && cfg.NumSegments > 0 {
-		out[4] = float64(seg) / float64(cfg.NumSegments)
+		x[0] = 1.0
 	}
 
-	// index 5: either product hash or mixed user+product hash
+	// index 1: time bucket
+	if cfg.Features.UseTimeBucket {
+		if hasTbLabel {
+			x[1] = tbFromLabel
+		} else {
+			x[1] = timeBucketFromHour(hour)
+		}
+	}
+
+	// index 2: day-of-week bucket
+	if cfg.Features.UseDowBucket {
+		x[2] = dowBucket(dow)
+	}
+
+	// index 3: platform (always encoded if present)
+	x[3] = platformBucket(platform)
+
+	// index 4: slot hash
+	if cfg.Features.UseSlotHash {
+		x[4] = slotHash(slot)
+	}
+
+	// index 5: segment
+	if cfg.Features.UseSegment && cfg.NumSegments > 0 {
+		x[5] = float64(seg) / float64(cfg.NumSegments)
+	}
+
+	// index 6: user/product hash
 	if cfg.Features.UseUserHash {
 		// simple mixture of user and product identity
-		out[5] = 0.5*productHash(productID) + 0.5*userHash(userID)
+		x[6] = 0.5*productHash(productID) + 0.5*userHash(userID)
 	} else if cfg.Features.UseProductHash {
-		out[5] = productHash(productID)
+		x[6] = productHash(productID)
 	}
 
-	return out
+	return x
 }

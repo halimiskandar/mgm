@@ -20,9 +20,9 @@ type (
 	}
 
 	BanditService interface {
-		Recommend(ctx context.Context, userID uint, slot string, limit int) ([]domain.BanditRecommendation, error)
-		DebugRecommend(ctx context.Context, userID uint, slot string, limit int) ([]domain.DebugRecommendation, error)
+		Recommend(ctx context.Context, userID uint, slot string, limit int, ctxMap map[string]any) ([]domain.BanditRecommendation, error)
 		LogFeedback(ctx context.Context, event domain.BanditEvent) error
+		DebugRecommend(ctx context.Context, userID uint, slot string, limit int, ctxMap map[string]any) ([]domain.DebugRecommendation, error)
 	}
 
 	RecommendQuery struct {
@@ -65,8 +65,13 @@ func (h *BanditHandler) Recommend(c echo.Context) error {
 	if q.N <= 0 {
 		q.N = 10
 	}
+	reqCtx := map[string]any{
 
-	recs, err := h.banditService.Recommend(c.Request().Context(), userID, q.Slot, q.N)
+		"platform":    c.Request().Header.Get("X-Platform"), // or infer from User-Agent
+		"page_name":   c.QueryParam("page_name"),
+		"device_type": c.QueryParam("device_type"),
+	}
+	recs, err := h.banditService.Recommend(c.Request().Context(), userID, q.Slot, q.N, reqCtx)
 	elapsed := time.Since(start).Seconds()
 	metrics.BanditRecommendLatency.Observe(elapsed)
 	metrics.BanditRecommendRequests.Inc()
@@ -127,8 +132,12 @@ func (h *BanditHandler) DebugRecommend(c echo.Context) error {
 	if q.N <= 0 {
 		q.N = 10
 	}
-
-	recs, err := h.banditService.DebugRecommend(c.Request().Context(), userID, q.Slot, q.N)
+	reqCtx := map[string]any{
+		"platform":    c.Request().Header.Get("X-Platform"),
+		"page_name":   c.QueryParam("page_name"),
+		"device_type": c.QueryParam("device_type"),
+	}
+	recs, err := h.banditService.DebugRecommend(c.Request().Context(), userID, q.Slot, q.N, reqCtx)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, ResponseError{Message: err.Error()})
 	}
@@ -164,8 +173,12 @@ func (h *BanditHandler) GetDebugRecommendations(c echo.Context) error {
 			limit = v
 		}
 	}
-
-	recs, err := h.banditService.DebugRecommend(ctx, userID, slot, limit)
+	reqCtx := map[string]any{
+		"platform":    c.Request().Header.Get("X-Platform"),
+		"page_name":   c.QueryParam("page_name"),
+		"device_type": c.QueryParam("device_type"),
+	}
+	recs, err := h.banditService.DebugRecommend(ctx, userID, slot, limit, reqCtx)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, echo.Map{
 			"error": err.Error(),

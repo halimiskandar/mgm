@@ -10,8 +10,9 @@ type BanditEvent struct {
 	EventType string    `gorm:"column:event_type;not null" json:"event_type"`
 	CreatedAt time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
 
-	Value   float64 `gorm:"-" json:"value"`   // optional GMV/margin
-	Variant int     `gorm:"-" json:"variant"` // A/B bucket
+	Value   float64        `gorm:"-" json:"value"`   // optional GMV/margin
+	Variant int            `gorm:"-" json:"variant"` // A/B bucket
+	Context map[string]any `json:"context"`
 }
 
 type BanditRecommendation struct {
