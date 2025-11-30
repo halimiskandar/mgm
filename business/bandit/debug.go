@@ -9,9 +9,6 @@ import (
 	"myGreenMarket/pkg/logger"
 )
 
-// DebugRecommend returns detailed scoring breakdown per candidate.
-// Move the *existing implementation* from bandit_service.go into here.
-
 // DebugRecommend returns detailed score components for inspection.
 func (s *BanditService) DebugRecommend(
 	ctx context.Context,
@@ -27,7 +24,7 @@ func (s *BanditService) DebugRecommend(
 		limit = 10
 	}
 
-	// ----- 1) figure out variant + config + segment (same as Recommend) -----
+	// 1) figure out variant + config + segment (same as Recommend) -----
 	cfg, seg, variant := s.loadConfigForUser(ctx, userID, slot)
 	slotKey := stateSlotKey(slot, seg)
 
@@ -42,7 +39,7 @@ func (s *BanditService) DebugRecommend(
 		"limit", limit,
 	)
 
-	// ----- 2) offline candidates -----
+	//2) offline candidates -----
 	candidateLimit := limit * 3
 	if candidateLimit < limit {
 		candidateLimit = limit
@@ -59,7 +56,7 @@ func (s *BanditService) DebugRecommend(
 		limit = len(offlineRows)
 	}
 
-	// ----- 3) fetch bandit state for this slot+segment -----
+	// 3) fetch bandit state for this slot+segment -----
 	state, err := s.stateRepo.GetState(ctx, slotKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get bandit state: %w", err)
@@ -83,11 +80,11 @@ func (s *BanditService) DebugRecommend(
 
 	result := make([]scored, 0, len(offlineRows))
 
-	// ----- 4) no state yet → offline only, bandit fields = 0 -----
+	// 4) no state yet → offline only, bandit fields = 0 -----
 	if state == nil {
 		for _, row := range offlineRows {
 			offlineNorm := row.Score / maxScore
-			final := cfg.WOffline * offlineNorm // bandit part is 0
+			final := cfg.WOffline * offlineNorm
 
 			result = append(result, scored{
 				rec: domain.DebugRecommendation{
@@ -103,7 +100,7 @@ func (s *BanditService) DebugRecommend(
 			})
 		}
 	} else {
-		// ----- 5) full LinUCB scoring with debug info -----
+		// 5) full LinUCB scoring with debug info -----
 		for _, row := range offlineRows {
 			pid := row.ProductID
 
@@ -160,7 +157,7 @@ func (s *BanditService) DebugRecommend(
 
 			// === COLD START BOOST only when bandit is active ===
 			if variant != VariantOfflineOnly && wasNew {
-				final += 0.25 // tune this hyperparameter
+				final += 0.25
 			}
 
 			// NOTE: no exploration noise in debug output
@@ -180,7 +177,7 @@ func (s *BanditService) DebugRecommend(
 		}
 	}
 
-	// ----- 6) top-N selection by final score -----
+	// 6) top-N selection by final score -----
 	if len(result) < limit {
 		limit = len(result)
 	}

@@ -18,3 +18,10 @@ type BanditRecommendation struct {
 	ProductID uint64  `json:"product_id"`
 	Score     float64 `json:"score"`
 }
+
+type UserBanditSegment struct {
+	UserID    uint      `gorm:"column:user_id;primaryKey"`
+	Segment   int       `gorm:"column:segment;not null"`
+	CreatedAt time.Time `gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt time.Time `gorm:"column:updated_at;autoUpdateTime"`
+}

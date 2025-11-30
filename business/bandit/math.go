@@ -1,4 +1,3 @@
-// business/bandit/math.go
 package bandit
 
 import (

@@ -25,9 +25,9 @@ type Config struct {
 	Features FeatureFlags
 }
 type VariantConfig struct {
-	PctOfflineOnly int // e.g., 10
-	PctUCB         int // e.g., 60
-	PctThompson    int // e.g., 30
+	PctOfflineOnly int
+	PctUCB         int
+	PctThompson    int
 }
 
 const (
