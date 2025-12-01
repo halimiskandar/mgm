@@ -62,6 +62,16 @@ func NewUserService(
 	}
 }
 
+const (
+	RoleCustomer = "customer"
+	RoleAdmin    = "admin"
+)
+
+var validRoles = map[string]bool{
+	RoleCustomer: true,
+	RoleAdmin:    true,
+}
+
 func (s *userService) Register(ctx context.Context, user *domain.User) (domain.User, error) {
 	if err := s.validate.Var(user.Email, "required,email"); err != nil {
 		logger.Error("Invalid email format", err)
@@ -273,6 +283,14 @@ func (s *userService) UpdateUser(ctx context.Context, id uint, updateData *domai
 
 	if updateData.Wallet >= 0 {
 		existingUser.Wallet = updateData.Wallet
+	}
+
+	if updateData.Wallet < 0 {
+		return domain.User{}, errors.New("wallet ballance cannot be negative")
+	}
+
+	if updateData.Role != "" && !validRoles[updateData.Role] {
+		return domain.User{}, errors.New("invalid role")
 	}
 
 	// Update in database

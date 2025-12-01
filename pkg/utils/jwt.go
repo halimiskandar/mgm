@@ -16,6 +16,10 @@ type JWTClaims struct {
 
 func GenerateJWT(userID, role string) (string, error) {
 	secretKey := os.Getenv("JWT_SECRET")
+	if secretKey == "" {
+		return "", errors.New("JWT_SECRET not configured")
+	}
+
 	claims := JWTClaims{
 		UserID: userID,
 		Role:   role,
@@ -36,6 +40,7 @@ func GenerateJWT(userID, role string) (string, error) {
 
 func ParseJWT(tokenStr string) (*JWTClaims, error) {
 	secretKey := os.Getenv("JWT_SECRET")
+
 	token, err := jwt.ParseWithClaims(tokenStr, &JWTClaims{}, func(t *jwt.Token) (any, error) {
 		return []byte(secretKey), nil
 	})
