@@ -50,7 +50,7 @@ func SetPaymentsRoutes(api *echo.Group, paymentsHandler *rest.PaymentsHandler) {
 	api.GET("/paid", paymentsHandler.PaidResponse)
 }
 
-func SetWebhookHandler(api *echo.Group, webhookHandler *rest.WebhookController) {
+func SetWebhookHandler(api *echo.Group, webhookHandler *rest.WebhookHandler) {
 	webhook := api.Group("/webhook")
 	webhook.POST("/handler", webhookHandler.HandleWebhook)
 }
