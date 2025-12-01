@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -60,6 +61,10 @@ func NewWebhookController(paymentService PaymentsService) *WebhookController {
 func (ctrl WebhookController) HandleWebhook(c echo.Context) error {
 	var request WebhookRequest
 
+	receivedToken := c.Request().Header.Get("x-callback-token")
+	fmt.Println("---------------------------------Webhook Header-----------------------------------------------------")
+	log.Print(receivedToken)
+	fmt.Println("---------------------------------Webhook Header-----------------------------------------------------")
 	if err := c.Bind(&request); err != nil {
 		log.Println("Failed to bind webhook request:", err)
 		return c.JSON(http.StatusBadRequest, fres.Response.StatusBadRequest("Invalid request"))
@@ -73,6 +78,5 @@ func (ctrl WebhookController) HandleWebhook(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, fres.Response.StatusInternalServerError(http.StatusInternalServerError))
 	}
 
-	log.Print(request)
 	return c.JSON(http.StatusOK, fres.Response.StatusOK(http.StatusOK))
 }
