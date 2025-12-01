@@ -114,7 +114,7 @@ func main() {
 	productHandler := rest.NewProductHandler(productService)
 	ordersHandler := rest.NewOrdersHandler(ordersService)
 	paymentsHandler := rest.NewPaymentsHandler(paymentsService)
-	webhookHandler := rest.NewWebhookController(paymentsService)
+	webhookHandler := rest.NewWebhookHandler(paymentsService, cfg.Xendit.XenditWebhookVerificationToken)
 	banditHandler := rest.NewBanditHandler(banditService)
 	mockRecoHandler := rest.NewMockRecommendationHandler(mockRecoService)
 	banditAdminHandler := rest.NewBanditAdminHandler(cfgRepo, segmentRepo)

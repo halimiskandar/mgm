@@ -12,9 +12,10 @@ import (
 )
 
 type (
-	WebhookController struct {
-		paymentService PaymentsService
-		validate       *validator.Validate
+	WebhookHandler struct {
+		paymentService                 PaymentsService
+		validate                       *validator.Validate
+		xenditWebhookVerificationToken string
 	}
 
 	WebhookRequest struct {
@@ -51,19 +52,26 @@ type (
 	}
 )
 
-func NewWebhookController(paymentService PaymentsService) *WebhookController {
-	return &WebhookController{
-		paymentService: paymentService,
-		validate:       validator.New(),
+func NewWebhookHandler(paymentService PaymentsService, xenditWebhookVerificationToken string) *WebhookHandler {
+	return &WebhookHandler{
+		paymentService:                 paymentService,
+		validate:                       validator.New(),
+		xenditWebhookVerificationToken: xenditWebhookVerificationToken,
 	}
 }
 
-func (ctrl WebhookController) HandleWebhook(c echo.Context) error {
+func (ctrl WebhookHandler) HandleWebhook(c echo.Context) error {
 	var request WebhookRequest
 
 	receivedToken := c.Request().Header.Get("x-callback-token")
 	fmt.Println("---------------------------------Webhook Header-----------------------------------------------------")
+	log.Print(ctrl.xenditWebhookVerificationToken)
 	log.Print(receivedToken)
+	if ctrl.xenditWebhookVerificationToken == receivedToken {
+		log.Print("Yeah the xendit token is correct")
+	} else {
+		log.Print("No, the xendit token is not correct")
+	}
 	fmt.Println("---------------------------------Webhook Header-----------------------------------------------------")
 	if err := c.Bind(&request); err != nil {
 		log.Println("Failed to bind webhook request:", err)

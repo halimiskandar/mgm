@@ -50,9 +50,10 @@ type JWTConfig struct {
 }
 
 type XenditConfig struct {
-	XenditSecretKey string
-	XenditUrl       string
-	RedirectUrl     string
+	XenditSecretKey                string
+	XenditUrl                      string
+	RedirectUrl                    string
+	XenditWebhookVerificationToken string
 }
 
 func Load() (*Config, error) {
@@ -88,9 +89,10 @@ func Load() (*Config, error) {
 			MailjetSenderName:        getEnv("MAILJET_SENDER_NAME", ""),
 		},
 		Xendit: XenditConfig{
-			XenditSecretKey: getEnv("XENDIT_SECRET_KEY", ""),
-			XenditUrl:       getEnv("XENDIT_URL", ""),
-			RedirectUrl:     getEnv("REDIRECT_URL", ""),
+			XenditSecretKey:                getEnv("XENDIT_SECRET_KEY", ""),
+			XenditUrl:                      getEnv("XENDIT_URL", ""),
+			RedirectUrl:                    getEnv("REDIRECT_URL", ""),
+			XenditWebhookVerificationToken: getEnv("XENDIT_WEBHOOK_VERIFICATION_TOKEN", ""),
 		},
 	}
 
