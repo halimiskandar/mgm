@@ -222,6 +222,7 @@ func (s *PaymentsService) ReceivePaymentWebhook(request rest.WebhookRequest) err
 			}
 
 			order.OrderStatus = "PAID"
+			order.PaymentMethod = request.PaymentMethod
 			order.UpdatedAt = time.Now()
 			err = s.orderRepo.UpdateOrder(order)
 			if err != nil {
