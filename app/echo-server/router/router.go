@@ -18,11 +18,11 @@ func SetupUserRoutes(api *echo.Group, handler *rest.UserHandler, authRequired ec
 	// Protected routes - require authentication
 	users.POST("/logout", handler.Logout, authRequired)
 	users.POST("/refresh", handler.RefreshToken, authRequired)
-	users.PUT("/:id", handler.UpdateUser, authRequired)
+	users.GET("", handler.GetAllUsers, authRequired)
+	users.GET("/:id", handler.GetUserByID, authRequired)
 
 	// Admin only routes
-	users.GET("", handler.GetAllUsers, authRequired, adminOnly)
-	users.GET("/:id", handler.GetUserByID, authRequired, adminOnly)
+	users.PUT("/:id", handler.UpdateUser, authRequired, adminOnly)
 	users.DELETE("/:id", handler.DeleteUser, authRequired, adminOnly)
 }
 

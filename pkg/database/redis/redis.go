@@ -13,6 +13,7 @@ func NewRedisClient(config *config.Config) (*redis.Client, error) {
 	client := redis.NewClient(&redis.Options{
 		Addr:         fmt.Sprintf("%s:%s", config.Redis.RedisHost, config.Redis.RedisPort),
 		Password:     config.Redis.RedisPassword,
+		Username:     "default",
 		DB:           config.Redis.RedisDB,
 		DialTimeout:  5 * time.Second,
 		ReadTimeout:  3 * time.Second,
