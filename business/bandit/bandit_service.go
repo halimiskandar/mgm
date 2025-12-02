@@ -6,6 +6,8 @@ import (
 	"math/rand"
 	"myGreenMarket/domain"
 	"myGreenMarket/pkg/logger"
+
+	"strconv"
 	"time"
 )
 
@@ -25,34 +27,21 @@ const (
 	VariantOfflineOnly = 2
 )
 
+// ---- context helpers ----
+
 // buildBaseContext builds the standard context used for both recommendation & feedback.
-// `platform` can be "android", "ios", "web", etc.
 func buildBaseContext(now time.Time, platform string, segment, variant int) map[string]any {
 	return map[string]any{
-		"time_bucket": computeTimeBucket(now), // you implement this (morning/afternoon/evening)
-		"dow":         int(now.Weekday()),     // 0=Sunday, 1=Monday, ...
+		"time_bucket": computeTimeBucket(now),
+		"dow":         int(now.Weekday()), // 0=Sunday
 		"platform":    platform,
 		"segment":     segment,
 		"variant":     variant,
 		"event_time":  now.Format(time.RFC3339),
 	}
 }
-func computeTimeBucket(t time.Time) string {
-	h := t.Hour()
-	switch {
-	case h < 6:
-		return "night"
-	case h < 12:
-		return "morning"
-	case h < 18:
-		return "afternoon"
-	default:
-		return "evening"
-	}
-}
 
 // mergeContext merges multiple maps into a new one.
-
 func mergeContext(maps ...map[string]any) map[string]any {
 	out := make(map[string]any)
 	for _, m := range maps {
@@ -65,25 +54,30 @@ func mergeContext(maps ...map[string]any) map[string]any {
 
 // ---- Repository interfaces ----
 
-// Offline model output from mock_recommendations
 type OfflineRecommendationRepository interface {
 	GetBySlot(ctx context.Context, slot string, limit int) ([]domain.MockRecommendation, error)
 }
 
-// Write feedback events (raw log)
 type BanditRepository interface {
 	SaveEvent(ctx context.Context, event domain.BanditEvent) error
 }
 
-// Read product candidates (kept for future use if needed)
 type ProductRepository interface {
 	FindAll(ctx context.Context) ([]domain.Product, error)
 }
 
-// Persist LinUCB state per slot
 type BanditStateRepository interface {
-	GetState(ctx context.Context, slot string) (*LinUCBState, error)
-	SaveState(ctx context.Context, slot string, state *LinUCBState) error
+	GetState(ctx context.Context, key string) (*LinUCBState, error)
+	SaveState(ctx context.Context, key string, state *LinUCBState) error
+}
+
+type UserContext struct {
+	Tier       string
+	CampaignID string
+}
+
+type UserContextRepository interface {
+	GetUserContext(ctx context.Context, userID uint) (UserContext, error)
 }
 
 // ---- Usecase / Service ----
@@ -96,6 +90,7 @@ type BanditService struct {
 	eligChecker EligibilityChecker
 	cfgRepo     ConfigRepository
 	segmentRepo SegmentRepository
+	userCtxRepo UserContextRepository
 	defaultCfg  Config
 }
 
@@ -107,6 +102,7 @@ func NewBanditService(
 	offlineRepo OfflineRecommendationRepository,
 	cfgRepo ConfigRepository,
 	segmentRepo SegmentRepository,
+	userCtxRepo UserContextRepository,
 	defaultCfg Config,
 ) *BanditService {
 	return &BanditService{
@@ -117,9 +113,12 @@ func NewBanditService(
 		eligChecker: eligChecker,
 		cfgRepo:     cfgRepo,
 		segmentRepo: segmentRepo,
+		userCtxRepo: userCtxRepo,
 		defaultCfg:  defaultCfg,
 	}
 }
+
+//  Feedback / learning
 
 func (s *BanditService) LogFeedback(
 	ctx context.Context,
@@ -132,8 +131,9 @@ func (s *BanditService) LogFeedback(
 		return fmt.Errorf("event_type is required")
 	}
 
-	// 1) derive cfg + segment + variant using the same A/B engine as Recommend.
+	// 1) derive cfg + segment + variant
 	cfg, seg, variant := s.loadConfigForUser(ctx, event.UserID, event.Slot)
+
 	now := time.Now()
 	platform := ""
 	if event.Context != nil {
@@ -142,6 +142,18 @@ func (s *BanditService) LogFeedback(
 		}
 	}
 	baseCtx := buildBaseContext(now, platform, seg, variant)
+
+	// enrich with user_tier & campaign_id from DB
+	if s.userCtxRepo != nil {
+		if uc, err := s.userCtxRepo.GetUserContext(ctx, event.UserID); err == nil {
+			if uc.Tier != "" {
+				baseCtx["user_tier"] = uc.Tier
+			}
+			if uc.CampaignID != "" {
+				baseCtx["campaign_id"] = uc.CampaignID
+			}
+		}
+	}
 
 	// merge existing event.Context (from client) with baseCtx
 	event.Context = mergeContext(baseCtx, event.Context)
@@ -168,52 +180,87 @@ func (s *BanditService) LogFeedback(
 		"reward", reward,
 	)
 
-	event.Variant = variant
+	// 3) load global + user states
+	globalKey := stateGlobalKey(event.Slot, seg)
+	userKey := stateUserKey(event.Slot, seg, event.UserID)
 
-	// 2) slotKey for state
-	slotKey := stateSlotKey(event.Slot, seg)
-
-	// load state for this slot+segment
-	state, err := s.stateRepo.GetState(ctx, slotKey)
+	globalState, err := s.stateRepo.GetState(ctx, globalKey)
 	if err != nil {
-		return fmt.Errorf("failed to get bandit state: %w", err)
+		return fmt.Errorf("load global state: %w", err)
 	}
-	if state == nil {
-		state = newDefaultState()
+	if globalState == nil {
+		globalState = newDefaultState()
 	}
 
-	// arm for this product
+	userState, err := s.stateRepo.GetState(ctx, userKey)
+	if err != nil {
+		return fmt.Errorf("load user state: %w", err)
+	}
+	if userState == nil {
+		userState = newDefaultState()
+	}
+
 	pid := event.ProductID
-	arm, ok := state.Arms[pid]
+
+	// GLOBAL arm
+	gArm, ok := globalState.Arms[pid]
 	if !ok {
-		arm = newArmState()
-		state.Arms[pid] = arm
+		gArm = newArmState()
+		globalState.Arms[pid] = gArm
 	}
 
-	// rebuild feature vector using cfg + segment
+	// USER arm
+	uArm, ok := userState.Arms[pid]
+	if !ok {
+		uArm = newArmState()
+		userState.Arms[pid] = uArm
+	}
+
+	// feature vector using merged event.Context
 	x := buildFeatureVector(event.UserID, event.Slot, event.ProductID, cfg, seg, event.Context)
 
-	// Apply decay so old behavior slowly fades
-	applyDecay(arm)
+	// Apply decay then update both arms
+	applyDecay(gArm)
+	applyDecay(uArm)
 
-	// LinUCB update: A += x x^T, b += r x
-	addOuter(&arm.A, x)
-	addScaled(&arm.B, x, reward)
-	arm.Count++
-	arm.LastUpdated = time.Now()
+	addOuter(&gArm.A, x)
+	addScaled(&gArm.B, x, reward)
+	gArm.Count++
+	gArm.LastUpdated = time.Now()
 
-	capArms(state)
-	// persist updated state + raw event log
-	if err := s.stateRepo.SaveState(ctx, slotKey, state); err != nil {
-		return fmt.Errorf("failed to save bandit state: %w", err)
+	addOuter(&uArm.A, x)
+	addScaled(&uArm.B, x, reward)
+	uArm.Count++
+	uArm.LastUpdated = time.Now()
+
+	maxArms := cfg.MaxArmsPerState
+	capArms(globalState, maxArms)
+	capArms(userState, maxArms)
+
+	// 4) persist updated states + raw event log
+	if err := s.stateRepo.SaveState(ctx, globalKey, globalState); err != nil {
+		return fmt.Errorf("failed to save global bandit state: %w", err)
+	}
+	if err := s.stateRepo.SaveState(ctx, userKey, userState); err != nil {
+		return fmt.Errorf("failed to save user bandit state: %w", err)
 	}
 
 	if err := s.banditRepo.SaveEvent(ctx, event); err != nil {
 		return fmt.Errorf("failed to save bandit event: %w", err)
 	}
 
+	// increment Prometheus counter AFTER we successfully process the event
+	segLabel := strconv.Itoa(seg)
+	varLabel := strconv.Itoa(variant)
+
+	BanditFeedbackEventsTotal.
+		WithLabelValues(event.Slot, event.EventType, segLabel, varLabel).
+		Inc()
+
 	return nil
 }
+
+//  Recommendation / serving
 
 // Recommend returns N products for a user & slot using LinUCB
 // on top of offline recommendations from mock_recommendations.
@@ -232,7 +279,7 @@ func (s *BanditService) Recommend(
 		limit = 10
 	}
 
-	// 1) load offline candidates (mock_recommendations or products)
+	// 1) load offline candidates
 	offlineRows, limit, err := s.loadCandidates(ctx, slot, limit)
 	if err != nil {
 		return nil, err
@@ -254,10 +301,39 @@ func (s *BanditService) Recommend(
 	}
 	baseCtx := buildBaseContext(now, platform, seg, variant)
 
-	// fullCtx = base + request-provided ctx (page_name, user_segment_override, etc.)
+	if s.userCtxRepo != nil {
+		if uc, err := s.userCtxRepo.GetUserContext(ctx, userID); err == nil {
+			if uc.Tier != "" {
+				baseCtx["user_tier"] = uc.Tier
+			}
+			if uc.CampaignID != "" {
+				baseCtx["campaign_id"] = uc.CampaignID
+			}
+		}
+	}
+
+	// fullCtx = base + request-provided ctx (page_name, device_type, etc.)
 	fullCtx := mergeContext(baseCtx, reqCtx)
 
-	slotKey := stateSlotKey(slot, seg)
+	// 3) load global + user states
+	globalKey := stateGlobalKey(slot, seg)
+	userKey := stateUserKey(slot, seg, userID)
+
+	globalState, err := s.stateRepo.GetState(ctx, globalKey)
+	if err != nil {
+		return nil, fmt.Errorf("load global state: %w", err)
+	}
+	if globalState == nil {
+		globalState = newDefaultState()
+	}
+
+	userState, err := s.stateRepo.GetState(ctx, userKey)
+	if err != nil {
+		return nil, fmt.Errorf("load user state: %w", err)
+	}
+	if userState == nil {
+		userState = newDefaultState()
+	}
 
 	// trace logging
 	tid := TraceIDFromContext(ctx)
@@ -271,51 +347,42 @@ func (s *BanditService) Recommend(
 		"candidate_count", len(offlineRows),
 	)
 
-	// 3) load / init bandit state for this (slot,segment)
-	state, err := s.stateRepo.GetState(ctx, slotKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get bandit state: %w", err)
-	}
-	if state == nil {
-		state = newDefaultState()
-	}
+	// 4) score candidates with global + user state
+	recs := s.scoreCandidates(
+		ctx,
+		userID,
+		slot,
+		offlineRows,
+		globalState,
+		userState,
+		cfg,
+		seg,
+		variant,
+		limit,
+		fullCtx,
+	)
 
-	// 4) RANDOM COLD START INJECTION (Option C – part B)
-	// find 1 offline candidate that does not yet have an arm in state
-	var coldProduct uint64
-	for _, row := range offlineRows {
-		if _, ok := state.Arms[row.ProductID]; !ok {
-			coldProduct = row.ProductID
-			break
-		}
+	// after scoring, save both states
+	if err := s.stateRepo.SaveState(ctx, globalKey, globalState); err != nil {
+		return nil, fmt.Errorf("save global state: %w", err)
 	}
-
-	if coldProduct > 0 {
-		offlineRows = append(offlineRows, domain.MockRecommendation{
-			ProductID: coldProduct,
-			Score:     0.0, // let bandit scoring handle it
-		})
-	}
-
-	// 5) score candidates (Option C – part A cold-boost is inside)
-	recs := s.scoreCandidates(ctx, userID, slot, offlineRows, state, cfg, seg, variant, limit, fullCtx)
-
-	// 6) save updated state
-	if err := s.stateRepo.SaveState(ctx, slotKey, state); err != nil {
-		return nil, fmt.Errorf("failed to save bandit state: %w", err)
+	if err := s.stateRepo.SaveState(ctx, userKey, userState); err != nil {
+		return nil, fmt.Errorf("save user state: %w", err)
 	}
 
 	return recs, nil
 }
 
-// scoreCandidates combines offline score + bandit UCB into final scores.
-// It is A/B-aware via the `variant` and tunable via `cfg`.
+// ---- Scoring ----
+
+// scoreCandidates combines offline score + (global + user) bandit UCB into final scores.
 func (s *BanditService) scoreCandidates(
 	ctx context.Context,
 	userID uint,
 	slot string,
 	offlineRows []domain.MockRecommendation,
-	state *LinUCBState,
+	globalState *LinUCBState,
+	userState *LinUCBState,
 	cfg Config,
 	segment int,
 	variant int,
@@ -348,6 +415,13 @@ func (s *BanditService) scoreCandidates(
 
 	scoredList := make([]scored, 0, len(offlineRows))
 
+	wGlobal := cfg.WGlobal
+	wUser := cfg.WUser
+	if wGlobal == 0 && wUser == 0 {
+		wGlobal = 0.7
+		wUser = 0.3
+	}
+
 	for _, row := range offlineRows {
 		pid := row.ProductID
 
@@ -359,40 +433,57 @@ func (s *BanditService) scoreCandidates(
 			}
 		}
 
-		arm, ok := state.Arms[pid]
+		// GLOBAL arm (read-only for scoring)
+		gArm, ok := globalState.Arms[pid]
 		if !ok {
-			arm = newArmState()
-			state.Arms[pid] = arm
+			gArm = newArmState()
+		}
+
+		// USER arm (read-only for scoring)
+		uArm, ok := userState.Arms[pid]
+		if !ok {
+			uArm = newArmState()
 		}
 
 		// feature vector for this impression
 		x := buildFeatureVector(userID, slot, pid, cfg, segment, ctxMap)
 
-		// A^-1
-		AInv, err := invert4x4(arm.A)
+		// global A^-1 / theta
+		gAInv, err := invert4x4(gArm.A)
 		if err != nil {
-			arm = newArmState()
-			state.Arms[pid] = arm
-			AInv, _ = invert4x4(arm.A)
+			gArm = newArmState()
+			gAInv, _ = invert4x4(gArm.A)
 		}
-		theta := matVecMul(AInv, arm.B)
+		gTheta := matVecMul(gAInv, gArm.B)
+
+		// user A^-1 / theta
+		uAInv, err := invert4x4(uArm.A)
+		if err != nil {
+			uArm = newArmState()
+			uAInv, _ = invert4x4(uArm.A)
+		}
+		uTheta := matVecMul(uAInv, uArm.B)
 
 		offlineNorm := row.Score / maxScore
 
-		// === ALGO-LEVEL VARIANT SWITCH (live path) ===
-		var banditScore float64
+		var gBandit, uBandit float64
+
 		switch variant {
 		case VariantOfflineOnly:
 			// pure offline; no bandit contribution
-			banditScore = 0.0
+			gBandit = 0.0
+			uBandit = 0.0
 		case VariantThompson:
-			banditScore = thompsonScore(theta, x, AInv)
+			gBandit = thompsonScore(gTheta, x, gAInv)
+			uBandit = thompsonScore(uTheta, x, uAInv)
 		case VariantUCB:
 			fallthrough
 		default:
-			banditScore = ucbScore(theta, x, AInv, cfg.Alpha)
+			gBandit = ucbScore(gTheta, x, gAInv, cfg.Alpha)
+			uBandit = ucbScore(uTheta, x, uAInv, cfg.Alpha)
 		}
 
+		banditScore := wGlobal*gBandit + wUser*uBandit
 		final := cfg.WBandit*banditScore + cfg.WOffline*offlineNorm
 
 		// optional: exploration noise only for bandit variants

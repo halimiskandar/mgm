@@ -16,6 +16,13 @@ type Config struct {
 	// how much monetary value influences the reward
 	ValueWeight float64
 
+	// per-state arm cap (both global & user states)
+	MaxArmsPerState int
+
+	//how much global vs user bandit scores matter
+	WGlobal float64
+	WUser   float64
+
 	// business-context rewards per event type
 	RewardImpression float64
 	RewardClick      float64
@@ -24,6 +31,7 @@ type Config struct {
 
 	Features FeatureFlags
 }
+
 type VariantConfig struct {
 	PctOfflineOnly int
 	PctUCB         int
@@ -31,19 +39,20 @@ type VariantConfig struct {
 }
 
 const (
-	defaultWBandit      = 0.7
-	defaultWOffline     = 0.3
-	defaultExploreNoise = 0.05
-	defaultAlpha        = 1.0
-
+	defaultWBandit          = 0.7
+	defaultWOffline         = 0.3
+	defaultExploreNoise     = 0.05
+	defaultAlpha            = 1.0
+	defaultWGlobal          = 0.7
+	defaultWUser            = 0.3
 	defaultValueWeight      = 0.0001
 	defaultRewardImpression = 0.0
 	defaultRewardClick      = 1.0
 	defaultRewardATC        = 3.0
 	defaultRewardOrder      = 5.0
-
-	defaultNumSegments = 3
-	defaultNumVariants = 3
+	defaultNumSegments      = 3
+	defaultNumVariants      = 3
+	defaultMaxArmsPerState  = 300
 )
 
 func DefaultConfig() Config {
@@ -55,7 +64,11 @@ func DefaultConfig() Config {
 		ExploreNoise: defaultExploreNoise,
 		Alpha:        defaultAlpha,
 
+		WGlobal: defaultWGlobal,
+		WUser:   defaultWUser,
+
 		ValueWeight:      defaultValueWeight,
+		MaxArmsPerState:  defaultMaxArmsPerState,
 		RewardImpression: defaultRewardImpression,
 		RewardClick:      defaultRewardClick,
 		RewardATC:        defaultRewardATC,

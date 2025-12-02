@@ -2,15 +2,13 @@ package bandit
 
 import (
 	"context"
-	"fmt"
-	"math"
+	"math/rand"
 	"time"
 
 	"myGreenMarket/domain"
-	"myGreenMarket/pkg/logger"
 )
 
-// DebugRecommend returns detailed score components for inspection.
+// DebugRecommend returns a debug view of recommendations with context & features.
 func (s *BanditService) DebugRecommend(
 	ctx context.Context,
 	userID uint,
@@ -20,15 +18,25 @@ func (s *BanditService) DebugRecommend(
 ) ([]domain.DebugRecommendation, error) {
 
 	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("context error: %w", err)
+		return nil, err
 	}
 	if limit <= 0 {
 		limit = 10
 	}
 
-	// 1) figure out variant + config + segment (same as Recommend) -----
-	cfg, seg, variant := s.loadConfigForUser(ctx, userID, slot)
-	// Build the same base context as Recommend/LogFeedback.
+	// 1) load offline candidates (same as Recommend)
+	offlineRows, limit, err := s.loadCandidates(ctx, slot, limit)
+	if err != nil {
+		return nil, err
+	}
+	if len(offlineRows) == 0 {
+		return []domain.DebugRecommendation{}, nil
+	}
+
+	// 2) config + segment + variant for this user & slot
+	cfg, seg, variant := s.loadConfigForUser(ctx, userID, slot) // :contentReference[oaicite:1]{index=1}
+
+	// 3) build base context (time, dow, segment, variant, platform)
 	now := time.Now()
 	platform := ""
 	if ctxMap != nil {
@@ -37,44 +45,43 @@ func (s *BanditService) DebugRecommend(
 		}
 	}
 	baseCtx := buildBaseContext(now, platform, seg, variant)
+
+	// enrich with user_tier & campaign_id from DB (same as Recommend) :contentReference[oaicite:2]{index=2}
+	if s.userCtxRepo != nil {
+		if uc, err := s.userCtxRepo.GetUserContext(ctx, userID); err == nil {
+			if uc.Tier != "" {
+				baseCtx["user_tier"] = uc.Tier
+			}
+			if uc.CampaignID != "" {
+				baseCtx["campaign_id"] = uc.CampaignID
+			}
+		}
+	}
+
+	// fullCtx = base + request-provided ctx (page_name, device_type, etc.)
 	fullCtx := mergeContext(baseCtx, ctxMap)
-	slotKey := stateSlotKey(slot, seg)
 
-	// trace logging
-	tid := TraceIDFromContext(ctx)
-	logger.Debug("bandit_debug_recommend",
-		"trace_id", tid,
-		"user_id", userID,
-		"slot", slot,
-		"segment", seg,
-		"variant", variant,
-		"limit", limit,
-	)
+	// 4) load global + user states (read-only for debug) :contentReference[oaicite:3]{index=3}
+	globalKey := stateGlobalKey(slot, seg)
+	userKey := stateUserKey(slot, seg, userID)
 
-	//2) offline candidates -----
-	candidateLimit := limit * 3
-	if candidateLimit < limit {
-		candidateLimit = limit
-	}
-
-	offlineRows, err := s.offlineRepo.GetBySlot(ctx, slot, candidateLimit)
+	globalState, err := s.stateRepo.GetState(ctx, globalKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load offline recommendations: %w", err)
+		return nil, err
 	}
-	if len(offlineRows) == 0 {
-		return []domain.DebugRecommendation{}, nil
-	}
-	if len(offlineRows) < limit {
-		limit = len(offlineRows)
+	if globalState == nil {
+		globalState = newDefaultState()
 	}
 
-	// 3) fetch bandit state for this slot+segment -----
-	state, err := s.stateRepo.GetState(ctx, slotKey)
+	userState, err := s.stateRepo.GetState(ctx, userKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get bandit state: %w", err)
+		return nil, err
+	}
+	if userState == nil {
+		userState = newDefaultState()
 	}
 
-	// normalize offline scores
+	// 5) normalize offline score
 	maxScore := 0.0
 	for _, row := range offlineRows {
 		if row.Score > maxScore {
@@ -85,142 +92,124 @@ func (s *BanditService) DebugRecommend(
 		maxScore = 1
 	}
 
+	wGlobal := cfg.WGlobal
+	wUser := cfg.WUser
+	if wGlobal == 0 && wUser == 0 {
+		wGlobal = 0.7
+		wUser = 0.3
+	}
+
 	type scored struct {
 		rec   domain.DebugRecommendation
 		score float64
 	}
 
-	result := make([]scored, 0, len(offlineRows))
+	scoredList := make([]scored, 0, len(offlineRows))
 
-	// 4) no state yet → offline only, bandit fields = 0 -----
-	if state == nil {
-		for _, row := range offlineRows {
-			offlineNorm := row.Score / maxScore
-			final := cfg.WOffline * offlineNorm
+	for _, row := range offlineRows {
+		pid := row.ProductID
 
-			result = append(result, scored{
-				rec: domain.DebugRecommendation{
-					ProductID:         row.ProductID,
-					OfflineScore:      row.Score,
-					OfflineNormalized: offlineNorm,
-					BanditMean:        0,
-					BanditUncertainty: 0,
-					BanditUCB:         0,
-					FinalScore:        final,
-				},
-				score: final,
-			})
+		// eligibility filter (stock, hub, etc.) :contentReference[oaicite:4]{index=4}
+		if s.eligChecker != nil {
+			ok, err := s.eligChecker.IsEligible(ctx, userID, pid, slot)
+			if err != nil || !ok {
+				continue
+			}
 		}
-	} else {
-		// 5) full LinUCB scoring with debug info -----
-		for _, row := range offlineRows {
-			pid := row.ProductID
 
-			arm, ok := state.Arms[pid]
-			wasNew := false
-			if !ok {
-				arm = newArmState()
-				state.Arms[pid] = arm
-				wasNew = true
-			}
-
-			// feature vector
-			x := buildFeatureVector(userID, slot, pid, cfg, seg, fullCtx)
-
-			// A^-1
-			AInv, err := invert4x4(arm.A)
-			if err != nil {
-				arm = newArmState()
-				state.Arms[pid] = arm
-				AInv, _ = invert4x4(arm.A)
-			}
-
-			theta := matVecMul(AInv, arm.B)
-			fv := buildFeatureVector(userID, slot, pid, cfg, seg, fullCtx)
-			// UCB components for debug fields
-			mean := dot(theta, x)
-			tmp := matVecMul(AInv, x)
-			uncertainty := math.Sqrt(dot(x, tmp))
-			ucb := mean + cfg.Alpha*uncertainty
-
-			offlineNorm := row.Score / maxScore
-
-			// === ALGO-LEVEL A/B SWITCH ===
-			var banditScore float64
-
-			switch variant {
-			case VariantOfflineOnly:
-				// pure offline baseline: ignore bandit, just use offline score
-				banditScore = 0.0
-
-			case VariantThompson:
-				// Thompson Sampling
-				banditScore = thompsonScore(theta, x, AInv)
-
-			case VariantUCB:
-				fallthrough
-			default:
-				// UCB (current behavior)
-				banditScore = ucbScore(theta, x, AInv, cfg.Alpha)
-			}
-
-			// combine offline + bandit
-			final := cfg.WBandit*banditScore + cfg.WOffline*offlineNorm
-
-			// === COLD START BOOST only when bandit is active ===
-			if variant != VariantOfflineOnly && wasNew {
-				final += 0.25
-			}
-
-			// NOTE: no exploration noise in debug output
-
-			result = append(result, scored{
-				rec: domain.DebugRecommendation{
-					ProductID:         pid,
-					OfflineScore:      row.Score,
-					OfflineNormalized: offlineNorm,
-					BanditMean:        mean,
-					BanditUncertainty: uncertainty,
-					BanditUCB:         ucb,
-					FinalScore:        final,
-
-					// 🔹 here we use fv
-					Features: featuresToSlice(fv),
-					Context:  fullCtx,
-					Segment:  seg,
-					Variant:  variant,
-				},
-				score: final,
-			})
+		// GLOBAL arm
+		gArm, ok := globalState.Arms[pid]
+		if !ok {
+			gArm = newArmState()
 		}
+
+		// USER arm
+		uArm, ok := userState.Arms[pid]
+		if !ok {
+			uArm = newArmState()
+		}
+
+		// feature vector for this impression
+		x := buildFeatureVector(userID, slot, pid, cfg, seg, fullCtx)
+
+		// copy fixed array into slice for JSON
+		fv := make([]float64, len(x))
+		copy(fv, x[:])
+
+		// global stats
+		gAInv, err := invert4x4(gArm.A)
+		if err != nil {
+			gArm = newArmState()
+			gAInv, _ = invert4x4(gArm.A)
+		}
+		gTheta := matVecMul(gAInv, gArm.B)
+
+		// user stats
+		uAInv, err := invert4x4(uArm.A)
+		if err != nil {
+			uArm = newArmState()
+			uAInv, _ = invert4x4(uArm.A)
+		}
+		uTheta := matVecMul(uAInv, uArm.B)
+
+		offlineNorm := row.Score / maxScore
+
+		var gBandit, uBandit float64
+
+		switch variant {
+		case VariantOfflineOnly:
+			gBandit = 0.0
+			uBandit = 0.0
+		case VariantThompson:
+			gBandit = thompsonScore(gTheta, x, gAInv)
+			uBandit = thompsonScore(uTheta, x, uAInv)
+		case VariantUCB:
+			fallthrough
+		default:
+			gBandit = ucbScore(gTheta, x, gAInv, cfg.Alpha)
+			uBandit = ucbScore(uTheta, x, uAInv, cfg.Alpha)
+		}
+
+		banditScore := wGlobal*gBandit + wUser*uBandit
+		final := cfg.WBandit*banditScore + cfg.WOffline*offlineNorm
+
+		if variant != VariantOfflineOnly && cfg.ExploreNoise > 0 {
+			final += cfg.ExploreNoise * rand.Float64()
+		}
+
+		rec := domain.DebugRecommendation{
+			ProductID:  pid,
+			FinalScore: final,
+			Segment:    seg,
+			Variant:    variant,
+			Context:    fullCtx,
+			Features:   fv,
+		}
+
+		scoredList = append(scoredList, scored{
+			rec:   rec,
+			score: final,
+		})
 	}
 
-	// 6) top-N selection by final score -----
-	if len(result) < limit {
-		limit = len(result)
+	// 6) sort top-N by score (simple selection, same as scoreCandidates) :contentReference[oaicite:5]{index=5}
+	if len(scoredList) < limit {
+		limit = len(scoredList)
 	}
-
 	for i := 0; i < limit; i++ {
 		maxIdx := i
-		for j := i + 1; j < len(result); j++ {
-			if result[j].score > result[maxIdx].score {
+		for j := i + 1; j < len(scoredList); j++ {
+			if scoredList[j].score > scoredList[maxIdx].score {
 				maxIdx = j
 			}
 		}
-		result[i], result[maxIdx] = result[maxIdx], result[i]
+		scoredList[i], scoredList[maxIdx] = scoredList[maxIdx], scoredList[i]
 	}
 
 	out := make([]domain.DebugRecommendation, 0, limit)
 	for i := 0; i < limit; i++ {
-		out = append(out, result[i].rec)
+		out = append(out, scoredList[i].rec)
 	}
 
 	return out, nil
-}
-func featuresToSlice(fv [linUCBFeatureDim]float64) []float64 {
-	out := make([]float64, linUCBFeatureDim)
-	for i := 0; i < linUCBFeatureDim; i++ {
-		out[i] = fv[i]
-	}
-	return out
 }

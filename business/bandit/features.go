@@ -6,22 +6,14 @@ import (
 	"time"
 )
 
-func stateSlotKey(slot string, segment int) string {
-	return fmt.Sprintf("%s|seg=%d", slot, segment)
+// global key
+func stateGlobalKey(slot string, segment int) string {
+	return fmt.Sprintf("%s|seg=%d|global", slot, segment)
 }
 
-// time-of-day → 0, 0.33, 0.66, 1
-func timeBucket(hour int) float64 {
-	switch {
-	case hour < 6:
-		return 0.0
-	case hour < 12:
-		return 0.33
-	case hour < 18:
-		return 0.66
-	default:
-		return 1.0
-	}
+// user state: personal delta for a specific user
+func stateUserKey(slot string, segment int, userID uint) string {
+	return fmt.Sprintf("%s|seg=%d|user=%d", slot, segment, userID)
 }
 
 func timeBucketFromHour(hour int) float64 {
@@ -34,6 +26,19 @@ func timeBucketFromHour(hour int) float64 {
 		return 0.66
 	default:
 		return 1.0
+	}
+}
+func computeTimeBucket(t time.Time) string {
+	h := t.Hour()
+	switch {
+	case h < 6:
+		return "night"
+	case h < 12:
+		return "morning"
+	case h < 18:
+		return "afternoon"
+	default:
+		return "evening"
 	}
 }
 
@@ -171,10 +176,19 @@ func buildFeatureVector(
 		x[5] = float64(seg) / float64(cfg.NumSegments)
 	}
 
-	// index 6: user/product hash
+	// index 6: user/product hash with tier & campaign seasoning
 	if cfg.Features.UseUserHash {
-		// simple mixture of user and product identity
-		x[6] = 0.5*productHash(productID) + 0.5*userHash(userID)
+		// Build a composite string that includes tier & campaign from context
+		extra := ""
+		if tier, ok := ctxMap["user_tier"].(string); ok && tier != "" {
+			extra += "|tier:" + tier
+		}
+		if camp, ok := ctxMap["campaign_id"].(string); ok && camp != "" {
+			extra += "|camp:" + camp
+		}
+
+		base := fmt.Sprintf("user:%d|prod:%d%s", userID, productID, extra)
+		x[6] = hashToUnit(base) // hashToUnit should map string → [0,1] float
 	} else if cfg.Features.UseProductHash {
 		x[6] = productHash(productID)
 	}

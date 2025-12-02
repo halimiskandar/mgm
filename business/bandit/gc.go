@@ -5,46 +5,42 @@ import (
 	"time"
 )
 
-const maxArmsPerSlot = 2000
-
-func capArms(state *LinUCBState) {
+func capArms(state *LinUCBState, maxArms int) {
 	if state == nil {
 		return
 	}
-	if len(state.Arms) <= maxArmsPerSlot {
+	if maxArms <= 0 {
+		// 0 or negative: treat as "no cap"
+		return
+	}
+	if len(state.Arms) <= maxArms {
 		return
 	}
 
-	type armInfo struct {
-		productID   uint64
-		lastUpdated time.Time
-		count       int
+	type kv struct {
+		productID uint64
+		updated   time.Time
 	}
 
-	infos := make([]armInfo, 0, len(state.Arms))
+	list := make([]kv, 0, len(state.Arms))
 	for pid, arm := range state.Arms {
-		infos = append(infos, armInfo{
-			productID:   pid,
-			lastUpdated: arm.LastUpdated,
-			count:       arm.Count,
+		updated := arm.LastUpdated
+		if updated.IsZero() {
+			updated = time.Time{} // treat zero as the oldest
+		}
+		list = append(list, kv{
+			productID: pid,
+			updated:   updated,
 		})
 	}
 
-	// Sort ascending: oldest & least-used first
-	sort.Slice(infos, func(i, j int) bool {
-		if infos[i].lastUpdated.Equal(infos[j].lastUpdated) {
-			return infos[i].count < infos[j].count
-		}
-		return infos[i].lastUpdated.Before(infos[j].lastUpdated)
+	// newest first
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].updated.After(list[j].updated)
 	})
 
-	// Number of arms to drop
-	toDrop := len(state.Arms) - maxArmsPerSlot
-	if toDrop <= 0 {
-		return
-	}
-
-	for i := 0; i < toDrop && i < len(infos); i++ {
-		delete(state.Arms, infos[i].productID)
+	// keep [0:maxArms), delete the rest
+	for i := maxArms; i < len(list); i++ {
+		delete(state.Arms, list[i].productID)
 	}
 }

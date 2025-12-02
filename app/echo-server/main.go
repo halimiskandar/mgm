@@ -87,6 +87,7 @@ func main() {
 	cfgRepo := psqlRepo.NewBanditConfigRepository(db)
 	segmentRepo := psqlRepo.NewUserSegmentRepository(db)
 	categoryRepo := psqlRepo.NewCategoryRepository(db)
+	userCtxRepo := psqlRepo.NewUserContextRepository(db)
 
 	// Init service
 	userService := userService.NewUserService(userRepo, validate, mailjetEmail, cfg.App.AppEmailVerificationKey, cfg.App.AppDeploymentUrl)
@@ -105,6 +106,7 @@ func main() {
 		mockRecoRepo, // OfflineRecommendationRepository
 		cfgRepo,      // ConfigRepository
 		segmentRepo,  // SegmentRepository
+		userCtxRepo,  //segment
 		defaultCfg,   // base Config
 	)
 	mockRecoService := mockreco.NewService(mockRecoRepo)
