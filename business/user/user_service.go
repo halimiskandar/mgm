@@ -371,22 +371,6 @@ func (s *userService) UpdateUser(ctx context.Context, id uint, updateData *domai
 		existingUser.FullName = updateData.FullName
 	}
 
-	if updateData.Email != "" {
-		// Validate email format
-		if err := s.validate.Var(updateData.Email, "required,email"); err != nil {
-			logger.Error("Invalid email format", err)
-			return domain.User{}, errors.New("invalid email format")
-		}
-
-		// Check if email already exists (excluding current user)
-		userWithEmail, err := s.userRepo.FindByEmail(ctx, updateData.Email)
-		if err == nil && userWithEmail.ID != id {
-			logger.Error("Email already exists")
-			return domain.User{}, errors.New("email already exists")
-		}
-		existingUser.Email = updateData.Email
-	}
-
 	if updateData.Password != "" {
 		// Validate password
 		if err := s.validate.Var(updateData.Password, "required,min=6"); err != nil {
@@ -401,22 +385,6 @@ func (s *userService) UpdateUser(ctx context.Context, id uint, updateData *domai
 			return domain.User{}, errors.New("failed to hash password")
 		}
 		existingUser.Password = string(passwordHash)
-	}
-
-	// Validate role before assignment
-	if updateData.Role != "" {
-		if !validRoles[updateData.Role] {
-			return domain.User{}, errors.New("invalid role")
-		}
-		existingUser.Role = updateData.Role
-	}
-
-	// Validate wallet before assignment
-	if updateData.Wallet != 0 { // Only update if wallet is explicitly provided and not zero
-		if updateData.Wallet < 0 {
-			return domain.User{}, errors.New("wallet balance cannot be negative")
-		}
-		existingUser.Wallet = updateData.Wallet
 	}
 
 	// Update in database
