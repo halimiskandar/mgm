@@ -79,12 +79,18 @@ domain/
 
 internal/
   rest/                   # HTTP handlers (Echo)
-  middleware/             # auth, admin‑only, etc.
-  repository/             # DB implementations (Postgres, notif)
+  middleware/             # auth, admin‑only, self-or-admin, etc.
+  repository/             # DB implementations
+    postgres/             # PostgreSQL repositories
+    redis/                # Redis token repository
+    notification/         # Email notification (Mailjet)
+    xendit/               # Payment gateway integration
 
 pkg/
   config/                 # config loader (env, struct)
-  database/               # Postgres connection
+  database/               
+    postgres.go           # PostgreSQL connection
+    redis/                # Redis client initialization
   logger/                 # structured logger
   metrics/                # bandit & app metrics
   response/               # JSON response helpers
@@ -160,7 +166,11 @@ sql/
 - Email registration with validation
 - Email verification via `/users/email-verification/:code`
 - JWT‑based login (`/users/login`)
+- **Redis token storage** with session metadata (IP, user agent)
+- **Secure logout** with token blacklisting
+- **Token refresh** mechanism with old token invalidation
 - Role‑based access (customer vs admin)
+- **Self-or-Admin** access control - users can only access their own data
 - Secure password hashing using **bcrypt**
 
 ###  Eco‑Friendly Product Catalog
@@ -199,6 +209,7 @@ sql/
 | Language    | Go (Golang)               |
 | Framework   | Echo v4                   |
 | Database    | PostgreSQL                |
+| Cache/Store | Redis (Token Storage)     |
 | ORM / DB    | GORM + handcrafted SQL    |
 | Auth        | JWT, bcrypt               |
 | Metrics     | Prometheus (`/metrics`)   |
@@ -233,11 +244,31 @@ DB_USER=postgres
 DB_PASSWORD=postgres
 DB_NAME=my_green_market
 
+# Redis Configuration (for token storage)
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
+REDIS_DB=0
+
 JWT_SECRET=supersecretjwt
 XENDIT_API_KEY=your_xendit_key_here
 ```
 
-### 3. Database Setup
+### 3. Redis Setup
+
+**Option 1: Using Docker (Recommended)**
+
+```bash
+# Run Redis container
+docker run -d --name redis-dev -p 6379:6379 redis:latest
+
+# Verify Redis is running
+docker ps
+docker exec -it redis-dev redis-cli ping
+# Expected output: PONG
+```
+
+### 4. Database Setup
 
 Using `sql/ddl.sql`:
 
@@ -251,7 +282,7 @@ Optionally seed some data:
 psql -h localhost -U postgres -d my_green_market -f sql/dml.sql
 ```
 
-### 4. Run the Server
+### 5. Run the Server
 
 From `app/echo-server`:
 
@@ -283,10 +314,105 @@ http://localhost:8080/metrics
 3. **Login**
    - `POST /api/v1/users/login`
    - Returns JWT access token
+   - **Token is stored in Redis** with user metadata (IP address, user agent, expiration)
 4. **Use JWT**
    - Pass `Authorization: Bearer <token>` for all protected routes (orders, payments, bandit feedback, etc.)
+   - Token is validated against Redis for active sessions
+5. **Logout**
+   - `POST /api/v1/users/logout`
+   - Blacklists token in Redis and removes from active sessions
+6. **Refresh Token**
+   - `POST /api/v1/users/refresh`
+   - Generates new token, blacklists old token, updates Redis storage
 
 ---
+
+## Redis Token Storage
+
+### Overview
+
+The application uses **Redis** as a session store for JWT tokens, providing:
+- **Real-time token validation** - Tokens are checked against Redis on each request
+- **Session management** - Track active sessions per user
+- **Token revocation** - Logout immediately invalidates tokens
+- **Security audit** - Track IP addresses and user agents per session
+- **Token blacklisting** - Prevent reuse of old/refreshed tokens
+
+### Redis Data Structure
+
+**Active Tokens:**
+```
+Key: token:user:{user_id}
+Value: JSON object
+{
+  "user_id": "123",
+  "role": "customer",
+  "token": "eyJhbGc...",
+  "issued_at": "2025-12-04T10:00:00Z",
+  "expires_at": "2025-12-05T10:00:00Z",
+  "ip_address": "192.168.1.1",
+  "user_agent": "Mozilla/5.0..."
+}
+TTL: 24 hours
+```
+
+**Token Lookup (Reverse Index):**
+```
+Key: token:lookup:{token_string}
+Value: {user_id}
+TTL: 24 hours
+```
+
+**Blacklisted Tokens:**
+```
+Key: token:blacklist:{token_string}
+Value: "1"
+TTL: 24 hours (matches original token expiry)
+```
+
+### Token Lifecycle
+
+**Login Flow:**
+```
+1. User authenticates with email/password
+2. JWT token is generated
+3. Token + metadata stored in Redis
+   - Key: token:user:{user_id}
+   - Key: token:lookup:{token}
+4. Token returned to client
+```
+
+**Protected Request Flow:**
+```
+1. Client sends: Authorization: Bearer {token}
+2. Middleware parses JWT
+3. Check Redis: GET token:blacklist:{token}
+   - If exists → reject (401)
+4. Check Redis: GET token:lookup:{token}
+   - If not exists → reject (401)
+5. Validate UserID matches
+6. Allow request to proceed
+```
+
+**Logout Flow:**
+```
+1. Client sends logout request with token
+2. Add to blacklist: SET token:blacklist:{token}
+3. Delete from Redis: DEL token:user:{user_id}
+4. Delete lookup: DEL token:lookup:{token}
+5. Token can no longer be used
+```
+
+**Refresh Token Flow:**
+```
+1. Validate old token from Redis
+2. Generate new JWT token
+3. Blacklist old token
+4. Delete old token from Redis
+5. Store new token in Redis
+6. Return new token to client
+```
+
 
 ## Important Endpoints (API Overview)
 
@@ -294,11 +420,17 @@ Base path: `/api/v1`
 
 ### Users
 
-| Method | Path                                  | Description                | Auth |
-|--------|---------------------------------------|----------------------------|------|
-| POST   | `/users/register`                     | Register new user          | No   |
-| GET    | `/users/email-verification/:code`     | Verify email code          | No   |
-| POST   | `/users/login`                        | Login, returns JWT token   | No   |
+| Method | Path                                  | Description                                | Auth              |
+|--------|---------------------------------------|--------------------------------------------|-------------------|
+| POST   | `/users/register`                     | Register new user                          | No                |
+| GET    | `/users/email-verification/:code`     | Verify email code                          | No                |
+| POST   | `/users/login`                        | Login, returns JWT token                   | No                |
+| POST   | `/users/logout`                       | Logout account, blacklisting token         | Yes               |
+| POST   | `/users/refresh`                      | Refreshing JWT token, return new JWT token | Yes               |
+| GET    | `/users/`                             | List All Users                             | Admin only        |
+| GET    | `/users/:id`                          | Get user by ID, only user id itself        | Admin/Self-Access |
+| PUT    | `/users/:id`                          | Update user                                | Admin/Self-Access |
+| DELETE | `/users/:id`                          | Delete user                                | Admin only        |
 
 ### Categories
 
@@ -367,11 +499,14 @@ This repo is accompanied by a **Postman collection** (JSON) that you can import 
 
 - **JWT utils**: sign & verify tokens, used in `AuthMiddleware`
 - **Password hashing**: hash & compare passwords securely
+- **Redis token storage**: session management with token validation
 - **Logger**: centralised structured logger for requests & errors
 - **Metrics**: bandit performance and HTTP metrics for Prometheus
 - **Middleware**:
-  - `AuthMiddleware()` – injects `user_id` from JWT into context
+  - `AuthMiddleware()` – basic JWT validation (stateless)
+  - `AuthMiddlewareWithRedis()` – JWT validation with Redis session check
   - `AdminOnly()` – restricts access to admin routes
+  - `SelfOrAdmin()` – allows users to access their own data, admins can access all
 
 ---
 
@@ -379,8 +514,13 @@ This repo is accompanied by a **Postman collection** (JSON) that you can import 
 
 - Never store plain‑text passwords – bcrypt is enforced
 - JWT secret must be **strong** and kept private
+- **Redis token storage** enables immediate session revocation
+- **Token blacklisting** prevents reuse of logged-out or refreshed tokens
+- **Session tracking** via IP address and user agent for security auditing
 - For production, use **HTTPS** termination in front of this service
 - Limit Xendit webhook origin by IP / secret validation
+- Consider Redis authentication (REDIS_PASSWORD) in production
+- Use Redis Cluster or Sentinel for high availability in production
 
 ---
 

@@ -7,7 +7,7 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-func SetupUserRoutes(api *echo.Group, handler *rest.UserHandler, authRequired echo.MiddlewareFunc, adminOnly echo.MiddlewareFunc) {
+func SetupUserRoutes(api *echo.Group, handler *rest.UserHandler, authRequired echo.MiddlewareFunc, selfOrAdmin echo.MiddlewareFunc, adminOnly echo.MiddlewareFunc) {
 	users := api.Group("/users")
 
 	// Public routes
@@ -18,23 +18,27 @@ func SetupUserRoutes(api *echo.Group, handler *rest.UserHandler, authRequired ec
 	// Protected routes - require authentication
 	users.POST("/logout", handler.Logout, authRequired)
 	users.POST("/refresh", handler.RefreshToken, authRequired)
-	users.GET("", handler.GetAllUsers, authRequired)
-	users.GET("/:id", handler.GetUserByID, authRequired)
+
+	// Self or Admin
+	users.PUT("/:id", handler.UpdateUser, authRequired, selfOrAdmin)
+	users.GET("/:id", handler.GetUserByID, authRequired, selfOrAdmin)
 
 	// Admin only routes
-	users.PUT("/:id", handler.UpdateUser, authRequired, adminOnly)
+	users.GET("", handler.GetAllUsers, authRequired, adminOnly)
 	users.DELETE("/:id", handler.DeleteUser, authRequired, adminOnly)
 }
 
 func SetupProductRoutes(api *echo.Group, handler *rest.ProductHandler, authRequired echo.MiddlewareFunc, adminOnly echo.MiddlewareFunc) {
 	products := api.Group("/products")
 
-	products.GET("", handler.GetAllProducts, authRequired)
-	products.GET("/:id", handler.GetProductByID, authRequired)
+	// Public routes
+	products.GET("", handler.GetAllProducts)
+	products.GET("/:id", handler.GetProductByID)
+
+	// Admin only routes
 	products.POST("", handler.CreateProduct, authRequired, adminOnly)
 	products.PUT("/:id", handler.UpdateProduct, authRequired, adminOnly)
 	products.DELETE("/:id", handler.DeleteProduct, authRequired, adminOnly)
-
 }
 
 func SetOrdersRoutes(api *echo.Group, ordersHandler *rest.OrdersHandler) {

@@ -169,13 +169,14 @@ func main() {
 	// Auth middleware
 	authRequired := middleware.AuthMiddleware()
 	adminOnly := middleware.AdminOnly()
+	selfOrAdmin := middleware.SelfOrAdmin()
 
 	// Redis-based auth middleware (untuk route yang memerlukan validasi Redis)
 	authWithRedis := middleware.AuthMiddlewareWithRedis(userService)
 
 	// Setup routes
 	api := e.Group("/api/v1")
-	router.SetupUserRoutes(api, userHandler, authWithRedis, adminOnly)
+	router.SetupUserRoutes(api, userHandler, authWithRedis, selfOrAdmin, adminOnly)
 	router.SetupProductRoutes(api, productHandler, authRequired, adminOnly)
 	router.SetOrdersRoutes(api, ordersHandler)
 	router.SetPaymentsRoutes(api, paymentsHandler)

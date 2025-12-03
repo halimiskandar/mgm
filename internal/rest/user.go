@@ -52,11 +52,8 @@ type UserLoginRequest struct {
 }
 
 type UserUpdateRequest struct {
-	FullName string  `json:"full_name,omitempty"`
-	Email    string  `json:"email,omitempty" validate:"omitempty,email"`
-	Password string  `json:"password,omitempty" validate:"omitempty,min=6"`
-	Role     string  `json:"role,omitempty"`
-	Wallet   float64 `json:"wallet,omitempty"`
+	FullName string `json:"full_name,omitempty"`
+	Password string `json:"password,omitempty" validate:"omitempty,min=6"`
 }
 
 type RefreshTokenRequest struct {
@@ -286,10 +283,7 @@ func (h *UserHandler) UpdateUser(c echo.Context) error {
 
 	updateData := &domain.User{
 		FullName: reqUpdate.FullName,
-		Email:    reqUpdate.Email,
 		Password: reqUpdate.Password,
-		Role:     reqUpdate.Role,
-		Wallet:   reqUpdate.Wallet,
 	}
 
 	updatedUser, err := h.userService.UpdateUser(ctx, userID, updateData)

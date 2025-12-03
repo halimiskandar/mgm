@@ -171,3 +171,46 @@ func AdminOnly() echo.MiddlewareFunc {
 		}
 	}
 }
+
+func SelfOrAdmin() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			loggedInUserID, ok := c.Get("user_id").(uint)
+			if !ok {
+				return c.JSON(http.StatusUnauthorized, jsonres.Error(
+					"UNAUTHORIZED", "User not authenticated", nil,
+				))
+			}
+
+			role := c.Get("role")
+			roleStr, ok := role.(string)
+			if !ok {
+				return c.JSON(http.StatusForbidden, jsonres.Error(
+					"FORBIDDEN", "Invalid role", nil,
+				))
+			}
+
+			// Jika admin, langsung izinkan akses semua resource
+			if strings.ToUpper(roleStr) == "ADMIN" {
+				return next(c)
+			}
+
+			// Jika bukan admin, check apakah ID di path sama dengan ID user yang login
+			requestedID := c.Param("id")
+			requestedIDUint, err := strconv.ParseUint(requestedID, 10, 64)
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, jsonres.Error(
+					"BAD_REQUEST", "Invalid user ID", nil,
+				))
+			}
+
+			if uint(requestedIDUint) != loggedInUserID {
+				return c.JSON(http.StatusForbidden, jsonres.Error(
+					"FORBIDDEN", "You can only access your own data", nil,
+				))
+			}
+
+			return next(c)
+		}
+	}
+}
