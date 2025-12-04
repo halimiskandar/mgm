@@ -9,6 +9,8 @@ import (
 
 	"strconv"
 	"time"
+
+	"gorm.io/datatypes"
 )
 
 type FeatureFlags struct {
@@ -135,12 +137,20 @@ func (s *BanditService) LogFeedback(
 	cfg, seg, variant := s.loadConfigForUser(ctx, event.UserID, event.Slot)
 
 	now := time.Now()
-	platform := ""
+
+	// convert event.Context (JSONMap) into plain map[string]any for merging
+	eventCtxMap := map[string]any{}
 	if event.Context != nil {
-		if p, ok := event.Context["platform"].(string); ok {
-			platform = p
+		for k, v := range event.Context {
+			eventCtxMap[k] = v
 		}
 	}
+
+	platform := ""
+	if p, ok := eventCtxMap["platform"].(string); ok {
+		platform = p
+	}
+
 	baseCtx := buildBaseContext(now, platform, seg, variant)
 
 	// enrich with user_tier & campaign_id from DB
@@ -155,8 +165,11 @@ func (s *BanditService) LogFeedback(
 		}
 	}
 
-	// merge existing event.Context (from client) with baseCtx
-	event.Context = mergeContext(baseCtx, event.Context)
+	// merged feedback context = base + client-provided context
+	mergedCtx := mergeContext(baseCtx, eventCtxMap)
+
+	// write back into event.Context as JSONMap for DB persistence
+	event.Context = datatypes.JSONMap(mergedCtx)
 
 	// 2) compute reward using config-aware business rules
 	reward, err := cfg.RewardForEvent(event)
@@ -217,7 +230,7 @@ func (s *BanditService) LogFeedback(
 	}
 
 	// feature vector using merged event.Context
-	x := buildFeatureVector(event.UserID, event.Slot, event.ProductID, cfg, seg, event.Context)
+	x := buildFeatureVector(event.UserID, event.Slot, event.ProductID, cfg, seg, mergedCtx)
 
 	// Apply decay then update both arms
 	applyDecay(gArm)

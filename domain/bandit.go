@@ -1,6 +1,10 @@
 package domain
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/datatypes"
+)
 
 type BanditEvent struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
@@ -10,9 +14,9 @@ type BanditEvent struct {
 	EventType string    `gorm:"column:event_type;not null" json:"event_type"`
 	CreatedAt time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
 
-	Value   float64        `gorm:"-" json:"value"`   // optional GMV/margin
-	Variant int            `gorm:"-" json:"variant"` // A/B bucket
-	Context map[string]any `json:"context"`
+	Value   float64           `gorm:"-" json:"value"`   // optional GMV/margin
+	Variant int               `gorm:"-" json:"variant"` // A/B bucket
+	Context datatypes.JSONMap `gorm:"column:context;type:jsonb" json:"context"`
 }
 
 type BanditRecommendation struct {

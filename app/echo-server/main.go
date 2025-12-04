@@ -156,7 +156,21 @@ func main() {
 		AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch},
 		AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization},
 	}))
-	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
+
+	metricsToken := os.Getenv("METRICS_BEARER_TOKEN")
+	e.GET("/metrics", func(c echo.Context) error {
+
+		if metricsToken != "" {
+			auth := c.Request().Header.Get("Authorization")
+			expected := "Bearer " + metricsToken
+			if auth != expected {
+				return c.NoContent(http.StatusUnauthorized)
+			}
+		}
+
+		promhttp.Handler().ServeHTTP(c.Response(), c.Request())
+		return nil
+	})
 
 	// Auth middleware
 	authRequired := middleware.AuthMiddleware()
